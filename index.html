@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EquipTrack Pro - Group & Serial Asset Management</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- HTML5 QR Scanner -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- Tesseract OCR Engine -->
+    <script src="https://unpkg.com/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+
+    <!-- Firebase SDK Modules -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase Configuration & References
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'equiptrack-pro-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+        let db = null;
+        let auth = null;
+        let currentUser = null;
+
+        if (firebaseConfig) {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            // Export to window for global app access
+            window.db = db;
+            window.auth = auth;
+            window.appId = appId;
+            window.firestoreHelpers = { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc };
+
+            // Authenticate user
+            const initAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (err) {
+                    console.error("Auth error:", err);
+                }
+            };
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    window.currentUser = user;
+                    document.getElementById('cloud-sync-status').innerText = "Cloud Synced (Real-Time Firestore Active)";
+                    initFirestoreListeners();
+                }
+            });
+
+            initAuth();
+        } else {
+            console.warn("Firebase config not found. Operating in local mode fallback.");
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Print Engine Styles for Brother P-Touch Labels & Reports */
+        @media print {
+            body {
+                background: #ffffff !important;
+                color: #000000 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            body * {
+                visibility: hidden !important;
+            }
+            #printable-brother-label-wrapper, #printable-brother-label-wrapper *,
+            .printable-report-area, .printable-report-area * {
+                visibility: visible !important;
+            }
+            #printable-brother-label-wrapper {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 2mm !important;
+                background: #ffffff !important;
+                box-shadow: none !important;
+                border: none !important;
+            }
+            .printable-report-area {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                padding: 10mm !important;
+                background: #ffffff !important;
+                box-shadow: none !important;
+                color: #000000 !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="h-full text-slate-800 flex flex-col md:flex-row overflow-x-hidden">
+
+    <!-- DESKTOP SIDEBAR NAVIGATION -->
+    <aside class="w-64 bg-slate-900 text-slate-300 flex-col shrink-0 hidden md:flex border-r border-slate-800">
+        <div class="p-5 border-b border-slate-800 flex items-center space-x-3">
+            <div class="p-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/30">
+                <i class="fa-solid fa-boxes-stacked text-xl"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-white text-base tracking-wide leading-none">EquipTrack</h1>
+                <span class="text-[11px] text-blue-400 font-semibold uppercase tracking-wider">Enterprise Pro</span>
+            </div>
+        </div>
+
+        <nav class="flex-1 p-4 space-y-1.5 overflow-y-auto">
+            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-blue-400 bg-slate-800/80 transition">
+                <i class="fa-solid fa-chart-pie text-lg w-6 text-center"></i>
+                <span>Dashboard</span>
+            </button>
+            <button onclick="switchTab('inventory')" id="nav-inventory" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                <i class="fa-solid fa-layer-group text-lg w-6 text-center"></i>
+                <span>Group Inventory</span>
+            </button>
+            <button onclick="switchTab('create-group')" id="nav-create-group" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                <i class="fa-solid fa-folder-gear text-lg w-6 text-center text-emerald-400"></i>
+                <span>Group Management</span>
+            </button>
+            <button onclick="switchTab('team')" id="nav-team" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                <i class="fa-solid fa-users text-lg w-6 text-center text-sky-400"></i>
+                <span>Team Roster</span>
+            </button>
+            <button onclick="switchTab('calibration')" id="nav-calibration" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition relative">
+                <i class="fa-solid fa-triangle-exclamation text-lg w-6 text-center text-amber-400"></i>
+                <span>Calibration Hub</span>
+                <span id="calib-badge-count" class="ml-auto bg-amber-500/20 text-amber-300 text-xs px-2 py-0.5 rounded-full font-bold border border-amber-500/30">0</span>
+            </button>
+            <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                <i class="fa-solid fa-file-invoice text-lg w-6 text-center text-purple-400"></i>
+                <span>Reports Hub</span>
+            </button>
+            <button onclick="switchTab('scanner')" id="nav-scanner" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                <i class="fa-solid fa-qrcode text-lg w-6 text-center text-indigo-400"></i>
+                <span>QR Station</span>
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-slate-800 space-y-2">
+            <button onclick="exportDatabase()" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition">
+                <i class="fa-solid fa-download"></i>
+                <span>Export JSON Backup</span>
+            </button>
+            <label class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 cursor-pointer transition">
+                <i class="fa-solid fa-upload"></i>
+                <span>Import Database</span>
+                <input type="file" id="import-json-file" class="hidden" accept=".json" onchange="importDatabase(event)">
+            </label>
+        </div>
+    </aside>
+
+    <!-- MAIN BODY CONTAINER -->
+    <div class="flex-1 flex flex-col h-full overflow-hidden">
+        
+        <!-- TOP APP HEADER -->
+        <header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0 shadow-sm">
+            <div class="flex items-center space-x-3 md:hidden">
+                <div class="p-2 bg-blue-600 text-white rounded-xl shadow-md">
+                    <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+                <h1 class="font-bold text-slate-900 text-base">EquipTrack</h1>
+            </div>
+            
+            <div class="hidden md:flex items-center space-x-2">
+                <span class="inline-block w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                <span id="cloud-sync-status" class="text-xs font-medium text-slate-500">Connecting Cloud Database...</span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button onclick="openScannerModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
+                    <i class="fa-solid fa-qrcode"></i>
+                    <span class="hidden sm:inline">Quick Scan</span>
+                </button>
+                <button onclick="openCheckoutModal(null)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    <span>Check Out</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- CONTENT VIEWS DISPLAY -->
+        <main class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 pb-20 md:pb-6">
+            
+            <!-- VIEW 1: DASHBOARD -->
+            <section id="view-dashboard" class="space-y-6">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">System Overview</h2>
+                        <p class="text-sm text-slate-500">Real-time status of equipment groups, calibration schedules, and assignments.</p>
+                    </div>
+                </div>
+
+                <!-- KPI STATS CARDS -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Groups</span>
+                            <div class="p-2 bg-blue-50 text-blue-600 rounded-xl"><i class="fa-solid fa-boxes-stacked"></i></div>
+                        </div>
+                        <div class="text-2xl font-extrabold text-slate-900" id="stat-total-groups">0</div>
+                        <p class="text-xs text-slate-500"><span class="font-medium text-slate-700" id="stat-total-serials">0</span> total serial units</p>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Checked Out</span>
+                            <div class="p-2 bg-amber-50 text-amber-600 rounded-xl"><i class="fa-solid fa-hand-holding"></i></div>
+                        </div>
+                        <div class="text-2xl font-extrabold text-slate-900" id="stat-checked-out">0</div>
+                        <p class="text-xs text-slate-500"><span class="font-medium text-slate-700" id="stat-available">0</span> available in shop</p>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Calibrations Due</span>
+                            <div class="p-2 bg-rose-50 text-rose-600 rounded-xl"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        </div>
+                        <div class="text-2xl font-extrabold text-rose-600" id="stat-calib-urgent">0</div>
+                        <p class="text-xs text-slate-500">Due within 30 days or overdue</p>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Overdue Returns</span>
+                            <div class="p-2 bg-purple-50 text-purple-600 rounded-xl"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                        </div>
+                        <div class="text-2xl font-extrabold text-slate-900" id="stat-overdue-returns">0</div>
+                        <p class="text-xs text-slate-500">Past target return date</p>
+                    </div>
+                </div>
+
+                <!-- RECENT ACTIVITY & URGENT CALIBRATION TABLE -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="font-bold text-slate-800 text-base">Quick Inventory Status</h3>
+                            <button onclick="switchTab('inventory')" class="text-xs font-semibold text-blue-600 hover:text-blue-700">View All →</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-sm">
+                                <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-100">
+                                    <tr>
+                                        <th class="pb-3 px-2">Group ID</th>
+                                        <th class="pb-3 px-2">Category</th>
+                                        <th class="pb-3 px-2">Serials</th>
+                                        <th class="pb-3 px-2">Status</th>
+                                        <th class="pb-3 px-2">Calib Due</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dash-recent-tbody" class="divide-y divide-slate-100">
+                                    <!-- Dynamic Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 flex flex-col justify-between">
+                        <div class="space-y-3">
+                            <div class="flex items-center space-x-2 text-rose-600">
+                                <i class="fa-solid fa-triangle-exclamation"></i>
+                                <h3 class="font-bold text-slate-800 text-base">Calibration Action Needed</h3>
+                            </div>
+                            <p class="text-xs text-slate-500 leading-relaxed">Groups listed below require immediate recalibration or certification renewal before field dispatch.</p>
+                            <div id="dash-calib-alert-list" class="space-y-2 max-h-56 overflow-y-auto">
+                                <!-- Dynamic List -->
+                            </div>
+                        </div>
+                        <button onclick="switchTab('calibration')" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition">
+                            Open Calibration Hub
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 2: GROUP INVENTORY -->
+            <section id="view-inventory" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Equipment Group Inventory</h2>
+                        <p class="text-sm text-slate-500">Manage equipment groups, assign serial numbers, check in/out, and print labels.</p>
+                    </div>
+                    <button onclick="prepareCreateGroupForm()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Create New Group</span>
+                    </button>
+                </div>
+
+                <!-- SEARCH & FILTERS -->
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3">
+                    <div class="flex-1 relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
+                        <input type="text" id="inv-search-input" oninput="renderInventoryTable()" placeholder="Search by Group ID, Serial Number, Project, or Tech..." class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition">
+                    </div>
+                    <select id="inv-filter-status" onchange="renderInventoryTable()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="ALL">All Statuses</option>
+                        <option value="Available">Available in Shop</option>
+                        <option value="Checked Out">Checked Out</option>
+                    </select>
+                </div>
+
+                <!-- TABLE -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">Group ID</th>
+                                    <th class="px-4 py-3">Category</th>
+                                    <th class="px-4 py-3 text-center">Serials</th>
+                                    <th class="px-4 py-3">Status</th>
+                                    <th class="px-4 py-3">Assigned To / Project</th>
+                                    <th class="px-4 py-3">Calib Status</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-tbody" class="divide-y divide-slate-100">
+                                <!-- Dynamic Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 3: GROUP MANAGEMENT (CREATE & EDIT) -->
+            <section id="view-create-group" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight" id="group-form-heading">Group Management</h2>
+                        <p class="text-sm text-slate-500">Configure equipment group identifier and assign up to 16 serial numbers via manual input or camera OCR.</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="resetGroupForm()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">Clear Form</button>
+                    </div>
+                </div>
+
+                <form id="group-editor-form" onsubmit="saveEquipmentGroup(event)" class="space-y-6">
+                    <input type="hidden" id="edit-group-original-id" value="">
+                    
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
+                            <i class="fa-solid fa-folder-gear text-blue-600"></i>
+                            <span>1. Equipment Group Details</span>
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Group ID / Identifier *</label>
+                                <input type="text" id="group-input-id" required placeholder="e.g., GRP-RIG-001" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs uppercase font-mono focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Category / Type</label>
+                                <input type="text" id="group-input-category" placeholder="e.g., Heavy Lifting, Sensors" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Calibration Due Date *</label>
+                                <input type="date" id="group-input-calib" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SERIAL NUMBERS MANAGER WITH OCR CAMERA -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
+                                    <i class="fa-solid fa-barcode text-emerald-600"></i>
+                                    <span>2. Individual Serial Numbers (Max 16)</span>
+                                </h3>
+                                <p class="text-xs text-slate-500">Scan serial tags directly using your camera or upload photo plates.</p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button type="button" onclick="openOcrCameraModal()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
+                                    <i class="fa-solid fa-camera"></i>
+                                    <span>Camera OCR Scan</span>
+                                </button>
+                                <button type="button" onclick="addSerialInputRow('')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
+                                    <i class="fa-solid fa-plus"></i>
+                                    <span>Add Serial Row</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- DYNAMIC SERIAL ROWS CONTAINER -->
+                        <div id="serial-rows-container" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto p-1">
+                            <!-- Rows injected via JS -->
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-end space-x-3 pt-4">
+                        <button type="button" onclick="switchTab('inventory')" class="px-5 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition">Cancel</button>
+                        <button type="submit" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-md transition">Save Equipment Group</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- VIEW 4: TEAM ROSTER & PERSONNEL MANAGER -->
+            <section id="view-team" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Team Roster & Personnel Manager</h2>
+                        <p class="text-sm text-slate-500">Manage technicians and staff authorized for equipment checkout.</p>
+                    </div>
+                    <button onclick="openAddTeamModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Add Team Member</span>
+                    </button>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">Technician / Staff Name</th>
+                                    <th class="px-4 py-3">Role / Title</th>
+                                    <th class="px-4 py-3">Department</th>
+                                    <th class="px-4 py-3">Active Checkouts</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="team-tbody" class="divide-y divide-slate-100">
+                                <!-- Dynamic Team Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 5: CALIBRATION HUB -->
+            <section id="view-calibration" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Calibration Hub</h2>
+                        <p class="text-sm text-slate-500">Monitor upcoming expiration dates and bulk update group calibration status.</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">Group ID</th>
+                                    <th class="px-4 py-3">Category</th>
+                                    <th class="px-4 py-3">Due Date</th>
+                                    <th class="px-4 py-3">Days Remaining</th>
+                                    <th class="px-4 py-3">Status Badge</th>
+                                    <th class="px-4 py-3 text-right">Recalibrate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="calibration-tbody" class="divide-y divide-slate-100">
+                                <!-- Dynamic Calibration Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 6: REPORTS HUB -->
+            <section id="view-reports" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Reports Hub</h2>
+                        <p class="text-sm text-slate-500">Generate, print, and export executive reports for calibration, asset assignment, overdue items, and serial inventories.</p>
+                    </div>
+                </div>
+
+                <!-- Report Selector Buttons -->
+                <div class="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2">
+                    <button onclick="switchReportTab('calib-due')" id="report-tab-calib-due" class="report-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition bg-blue-600 text-white shadow-sm">
+                        <i class="fa-solid fa-calendar-exclamation mr-1.5"></i> 1. Calibration Due
+                    </button>
+                    <button onclick="switchReportTab('assignments')" id="report-tab-assignments" class="report-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition text-slate-600 hover:bg-slate-100">
+                        <i class="fa-solid fa-user-gear mr-1.5"></i> 2. User & Location
+                    </button>
+                    <button onclick="switchReportTab('overdue-returns')" id="report-tab-overdue-returns" class="report-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition text-slate-600 hover:bg-slate-100">
+                        <i class="fa-solid fa-clock-rotate-left mr-1.5"></i> 3. Overdue Returns
+                    </button>
+                    <button onclick="switchReportTab('group-info')" id="report-tab-group-info" class="report-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition text-slate-600 hover:bg-slate-100">
+                        <i class="fa-solid fa-list-check mr-1.5"></i> 4. Group & Serials Breakdown
+                    </button>
+                </div>
+
+                <!-- REPORT 1: CALIBRATION DUE -->
+                <div id="report-sec-calib-due" class="report-section space-y-4">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div class="flex items-center space-x-3">
+                            <div class="p-2.5 bg-amber-100 text-amber-700 rounded-xl text-lg"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-sm">Calibration Due & Overdue Audit Report</h3>
+                                <p class="text-xs text-slate-500">Includes all equipment groups overdue or due within the next 30 days.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="exportReportToCSV('calib-due')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-file-csv mr-1"></i> Export CSV
+                            </button>
+                            <button onclick="printCurrentReport()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-print mr-1"></i> Print Report
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden printable-report-area">
+                        <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-xs text-slate-500 font-semibold">
+                            <span>EQUIPTRACK PRO - CALIBRATION AUDIT REPORT</span>
+                            <span id="report-calib-timestamp">Generated: Today</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-sm">
+                                <thead class="bg-slate-100 text-slate-600 uppercase text-xs border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Group ID</th>
+                                        <th class="px-4 py-3">Category</th>
+                                        <th class="px-4 py-3 text-center">Serial Count</th>
+                                        <th class="px-4 py-3">Calibration Due</th>
+                                        <th class="px-4 py-3">Days Diff</th>
+                                        <th class="px-4 py-3">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-calib-due-tbody" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REPORT 2: ASSIGNED TO USER & LOCATION -->
+                <div id="report-sec-assignments" class="report-section space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div class="flex flex-wrap items-center gap-3 flex-1">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase">Filter Technician</label>
+                                <select id="report-filter-tech" onchange="renderAssignmentsReport()" class="px-3 py-1.5 border border-slate-200 rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500">
+                                    <option value="ALL">All Technicians</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase">Search Project / Location</label>
+                                <input type="text" id="report-filter-proj" oninput="renderAssignmentsReport()" placeholder="Filter project/location..." class="px-3 py-1.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="exportReportToCSV('assignments')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-file-csv mr-1"></i> Export CSV
+                            </button>
+                            <button onclick="printCurrentReport()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-print mr-1"></i> Print Report
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden printable-report-area">
+                        <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-xs text-slate-500 font-semibold">
+                            <span>EQUIPTRACK PRO - ASSET ASSIGNMENT & LOCATION REPORT</span>
+                            <span id="report-assign-timestamp">Generated: Today</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-sm">
+                                <thead class="bg-slate-100 text-slate-600 uppercase text-xs border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Group ID</th>
+                                        <th class="px-4 py-3">Assigned Technician</th>
+                                        <th class="px-4 py-3">Project / Location</th>
+                                        <th class="px-4 py-3">Scheduled Return</th>
+                                        <th class="px-4 py-3 text-center">Serials</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-assignments-tbody" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REPORT 3: OVERDUE EQUIPMENT REPORT -->
+                <div id="report-sec-overdue-returns" class="report-section space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div class="flex items-center space-x-3">
+                            <div class="p-2.5 bg-rose-100 text-rose-700 rounded-xl text-lg"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-sm">Overdue Check-Out Returns Report</h3>
+                                <p class="text-xs text-slate-500">Lists equipment groups whose scheduled return date has passed.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="exportReportToCSV('overdue-returns')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-file-csv mr-1"></i> Export CSV
+                            </button>
+                            <button onclick="printCurrentReport()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-print mr-1"></i> Print Report
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden printable-report-area">
+                        <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-xs text-slate-500 font-semibold">
+                            <span>EQUIPTRACK PRO - OVERDUE RETURN AUDIT REPORT</span>
+                            <span id="report-overdue-timestamp">Generated: Today</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-sm">
+                                <thead class="bg-slate-100 text-slate-600 uppercase text-xs border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Group ID</th>
+                                        <th class="px-4 py-3">Assigned Technician</th>
+                                        <th class="px-4 py-3">Project / Location</th>
+                                        <th class="px-4 py-3">Return Due</th>
+                                        <th class="px-4 py-3">Days Overdue</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-overdue-returns-tbody" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REPORT 4: COMPREHENSIVE GROUP INFO & SERIALS -->
+                <div id="report-sec-group-info" class="report-section space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div class="flex items-center space-x-3">
+                            <div class="p-2.5 bg-purple-100 text-purple-700 rounded-xl text-lg"><i class="fa-solid fa-list-check"></i></div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 text-sm">Comprehensive Group & Serial Inventory Breakdown</h3>
+                                <p class="text-xs text-slate-500">Detailed overview of equipment groups, calibration status, and embedded serial numbers.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="exportReportToCSV('group-info')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-file-csv mr-1"></i> Export CSV
+                            </button>
+                            <button onclick="printCurrentReport()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm">
+                                <i class="fa-solid fa-print mr-1"></i> Print Report
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="report-group-info-container" class="space-y-4 printable-report-area"></div>
+                </div>
+            </section>
+
+            <!-- VIEW 7: QR SCANNER STATION -->
+            <section id="view-scanner" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">QR Code Scanning Station</h2>
+                        <p class="text-sm text-slate-500">Scan equipment case labels using device cameras or manual code entry.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
+                            <i class="fa-solid fa-camera text-blue-600"></i>
+                            <span>Live Video Camera Stream</span>
+                        </h3>
+                        <div id="qr-reader-container" class="w-full bg-slate-900 rounded-xl overflow-hidden min-h-[300px] flex items-center justify-center relative">
+                            <div id="qr-scanner-placeholder" class="text-center p-6 text-slate-400 space-y-3">
+                                <i class="fa-solid fa-qrcode text-5xl opacity-40"></i>
+                                <p class="text-xs">Click below to activate device camera.</p>
+                            </div>
+                        </div>
+                        <div class="flex justify-center space-x-3">
+                            <button onclick="startTabCameraScanner()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition">Start Camera</button>
+                            <button onclick="stopCameraScanner()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold transition">Stop Camera</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
+                            <i class="fa-solid fa-keyboard text-emerald-600"></i>
+                            <span>Manual Code Search</span>
+                        </h3>
+                        <div class="space-y-3">
+                            <input type="text" id="manual-qr-input" placeholder="Enter Group ID Tag (e.g. GRP-RIG-001)" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-mono uppercase focus:ring-2 focus:ring-blue-500 outline-none">
+                            <button onclick="handleManualQrSearch()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition">Lookup Group</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- MOBILE BOTTOM NAV BAR -->
+        <nav class="md:hidden bg-slate-900 border-t border-slate-800 fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around px-2 py-1.5 text-[11px]">
+            <button onclick="switchTab('dashboard')" id="mobile-nav-dashboard" class="flex flex-col items-center text-blue-400 font-medium py-1">
+                <i class="fa-solid fa-chart-pie text-base mb-0.5"></i>
+                <span>Dash</span>
+            </button>
+            <button onclick="switchTab('inventory')" id="mobile-nav-inventory" class="flex flex-col items-center text-slate-400 font-medium py-1">
+                <i class="fa-solid fa-layer-group text-base mb-0.5"></i>
+                <span>Group</span>
+            </button>
+            <button onclick="switchTab('create-group')" id="mobile-nav-create-group" class="flex flex-col items-center text-slate-400 font-medium py-1">
+                <i class="fa-solid fa-folder-gear text-base mb-0.5"></i>
+                <span>Manage</span>
+            </button>
+            <button onclick="switchTab('reports')" id="mobile-nav-reports" class="flex flex-col items-center text-purple-400 font-medium py-1">
+                <i class="fa-solid fa-file-invoice text-base mb-0.5"></i>
+                <span>Reports</span>
+            </button>
+            <button onclick="switchTab('scanner')" id="mobile-nav-scanner" class="flex flex-col items-center text-slate-400 font-medium py-1">
+                <i class="fa-solid fa-qrcode text-base mb-0.5"></i>
+                <span>Scan</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- MODAL 1: CHECK IN / CHECK OUT MODAL -->
+    <div id="checkout-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base" id="checkout-modal-title">Equipment Group Check Out</h3>
+                <button onclick="closeCheckoutModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <form id="checkout-form" onsubmit="processCheckoutSubmit(event)" class="space-y-4">
+                <input type="hidden" id="checkout-group-id" value="">
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Select Equipment Group *</label>
+                    <select id="checkout-select-group" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <!-- Options injected -->
+                    </select>
+                </div>
+
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-xs font-bold text-slate-600">Assign To Technician *</label>
+                        <button type="button" onclick="toggleInlineAddTech()" class="text-[11px] font-semibold text-blue-600 hover:text-blue-700">+ Quick Add Tech</button>
+                    </div>
+                    <select id="checkout-select-tech" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <!-- Dynamic Roster Options -->
+                    </select>
+                </div>
+
+                <!-- INLINE TECH CREATOR -->
+                <div id="inline-add-tech-box" class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 hidden">
+                    <span class="text-xs font-bold text-slate-700">Add New Technician to Roster:</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="text" id="inline-tech-name" placeholder="Full Name *" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none">
+                        <input type="text" id="inline-tech-role" placeholder="Role/Title" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none">
+                    </div>
+                    <button type="button" onclick="saveInlineTech()" class="w-full py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold transition">Save & Select Tech</button>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Project Number / Job Location *</label>
+                    <input type="text" id="checkout-input-project" required placeholder="e.g. PRJ-2026-X89 / Offshore Platform Alpha" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Scheduled Return Date *</label>
+                    <input type="date" id="checkout-input-returndate" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+
+                <div class="flex items-center justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeCheckoutModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check Out</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 2: BROTHER P-TOUCH LABEL PRINTER MODAL -->
+    <div id="brother-printer-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-print text-blue-600 text-lg"></i>
+                    <h3 class="font-bold text-slate-900 text-base">Brother P-Touch Label Studio</h3>
+                </div>
+                <button onclick="closeBrotherPrinterModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <!-- Tape Selector & Controls -->
+            <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase">Tape Size</label>
+                    <select id="brother-tape-size" onchange="updateBrotherLabelPreview()" class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+                        <option value="12">12mm (0.47" Standard)</option>
+                        <option value="18">18mm (0.70" Medium)</option>
+                        <option value="24" selected>24mm (0.94" Wide Tag)</option>
+                        <option value="62">62mm (2.4" Shipping/Case)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase">Label Options</label>
+                    <label class="flex items-center space-x-1.5 mt-1 text-xs text-slate-600 cursor-pointer">
+                        <input type="checkbox" id="brother-show-calib" checked onchange="updateBrotherLabelPreview()">
+                        <span>Include Calib Badge</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- LIVE LABEL PREVIEW CONTAINER -->
+            <div class="p-4 bg-slate-200 rounded-xl flex items-center justify-center overflow-x-auto">
+                <div id="printable-brother-label-wrapper">
+                    <div id="brother-label-box" class="bg-white p-3 border-2 border-slate-900 rounded-lg flex items-center space-x-3 shadow-md max-w-sm">
+                        <div id="brother-label-qrcode" class="shrink-0"></div>
+                        <div class="space-y-1">
+                            <span id="brother-label-tag" class="font-mono font-bold text-sm text-blue-600 block">GRP-TAG</span>
+                            <div class="text-[10px] text-slate-500 font-medium">Serials: <span id="brother-label-serials">0</span> Units</div>
+                            <div id="brother-label-calib-container" class="mt-1">
+                                <span id="brother-label-calib-badge" class="px-2 py-0.5 text-[9px] font-bold rounded bg-emerald-100 text-emerald-800">Calib: 2026-12-31</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-2">
+                <button onclick="closeBrotherPrinterModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                <button onclick="triggerBrotherPrint()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center space-x-1">
+                    <i class="fa-solid fa-print mr-1"></i> Print to Brother Printer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: CAMERA OCR SCANNER MODAL -->
+    <div id="ocr-camera-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base">Camera Serial Number Reader</h3>
+                <button onclick="closeOcrCameraModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="relative bg-slate-900 rounded-xl overflow-hidden min-h-[240px] flex items-center justify-center">
+                <video id="ocr-video-feed" autoplay playsinline class="w-full h-full object-cover"></video>
+                <canvas id="ocr-canvas" class="hidden"></canvas>
+            </div>
+
+            <div id="ocr-status-badge" class="text-center text-xs font-semibold text-slate-500 min-h-[20px]">
+                Position serial plate in camera frame
+            </div>
+
+            <div class="flex items-center justify-between gap-2 pt-2">
+                <label class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer">
+                    <i class="fa-solid fa-upload mr-1"></i> Upload Photo
+                    <input type="file" accept="image/*" class="hidden" onchange="handleOcrPhotoUpload(event)">
+                </label>
+                <button onclick="captureAndProcessOcrFrame()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">
+                    Capture & Read Text
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 4: TEAM MEMBER MODAL -->
+    <div id="team-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base">Add Team Member</h3>
+                <button onclick="closeTeamModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <form id="team-form" onsubmit="saveTeamMember(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Technician / Staff Name *</label>
+                    <input type="text" id="team-input-name" required placeholder="e.g. Marcus Vance" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Job Title / Role</label>
+                    <input type="text" id="team-input-role" placeholder="e.g. Senior Field Engineer" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Department / Division</label>
+                    <input type="text" id="team-input-dept" placeholder="e.g. Subsea Testing" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+
+                <div class="flex items-center justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeTeamModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-sm">Save Contact</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN JAVASCRIPT APPLICATION CORE ENGINE -->
+    <script>
+        // GLOBAL DATA STORES & STATE
+        let equipmentData = [];
+        let teamRosterData = [];
+        let html5QrScanner = null;
+        let ocrVideoStream = null;
+        let activeLabelPrintGroup = null;
+        let activeReportTab = 'calib-due';
+
+        // INITIAL SEED DATA FOR NEW CLOUD INSTANCES
+        const initialSeedEquipment = [
+            {
+                id: "GRP-RIG-001",
+                category: "Lifting Equipment",
+                calibrationDueDate: "2026-12-15",
+                status: "Available",
+                assignedUser: "",
+                projectNumber: "",
+                returnDueDate: "",
+                serials: [{ serialId: "SHK-8841-A" }, { serialId: "SHK-8841-B" }, { serialId: "SLG-9902" }]
+            },
+            {
+                id: "GRP-SENS-002",
+                category: "Sensors & Gauges",
+                calibrationDueDate: "2026-11-20",
+                status: "Checked Out",
+                assignedUser: "Marcus Vance",
+                projectNumber: "PRJ-TEX-9921",
+                returnDueDate: "2026-11-10",
+                serials: [{ serialId: "PT-5510-X" }, { serialId: "PT-5511-X" }]
+            }
+        ];
+
+        const initialSeedTeam = [
+            { id: "TECH-1", name: "Marcus Vance", role: "Field Technician", dept: "Subsea Operations" },
+            { id: "TECH-2", name: "Sarah Jenkins", role: "Lead QA Engineer", dept: "Testing & Calib" },
+            { id: "TECH-3", name: "David Miller", role: "Rig Manager", dept: "Offshore Lifting" }
+        ];
+
+        // FIRESTORE REAL-TIME SYNCHRONIZATION ENGINE
+        function initFirestoreListeners() {
+            if (!window.db || !window.currentUser) return;
+            const { collection, doc, onSnapshot, setDoc } = window.firestoreHelpers;
+
+            // Public Collection Path Rules
+            const equipCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups');
+            const teamCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster');
+
+            // 1. Listen to Equipment Groups Collection
+            onSnapshot(equipCollectionRef, (snapshot) => {
+                if (snapshot.empty && equipmentData.length === 0) {
+                    // Seed initial data if empty
+                    initialSeedEquipment.forEach(item => {
+                        const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', item.id);
+                        setDoc(docRef, item);
+                    });
+                } else {
+                    const loadedEquip = [];
+                    snapshot.forEach(docSnap => loadedEquip.push(docSnap.data()));
+                    equipmentData = loadedEquip;
+                    refreshAllViews();
+                }
+            }, (error) => {
+                console.error("Equipment snapshot error:", error);
+            });
+
+            // 2. Listen to Team Roster Collection
+            onSnapshot(teamCollectionRef, (snapshot) => {
+                if (snapshot.empty && teamRosterData.length === 0) {
+                    initialSeedTeam.forEach(item => {
+                        const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster', item.id);
+                        setDoc(docRef, item);
+                    });
+                } else {
+                    const loadedTeam = [];
+                    snapshot.forEach(docSnap => loadedTeam.push(docSnap.data()));
+                    teamRosterData = loadedTeam;
+                    refreshAllViews();
+                }
+            }, (error) => {
+                console.error("Team snapshot error:", error);
+            });
+        }
+
+        function refreshAllViews() {
+            renderDashboard();
+            renderInventoryTable();
+            renderTeamRoster();
+            renderCalibrationHub();
+            updateCalibBadgeCount();
+            if (!document.getElementById('view-reports').classList.contains('hidden')) {
+                renderReportsHub();
+            }
+        }
+
+        // SAVE SINGLE GROUP TO FIRESTORE & LOCAL FALLBACK
+        async function syncGroupToCloud(groupObj) {
+            if (window.db && window.currentUser) {
+                const { doc, setDoc } = window.firestoreHelpers;
+                const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', groupObj.id);
+                await setDoc(docRef, groupObj);
+            }
+            saveStorageData();
+        }
+
+        async function removeGroupFromCloud(groupId) {
+            if (window.db && window.currentUser) {
+                const { doc, deleteDoc } = window.firestoreHelpers;
+                const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', groupId);
+                await deleteDoc(docRef);
+            }
+            saveStorageData();
+        }
+
+        // SAVE SINGLE TECH TO FIRESTORE & LOCAL FALLBACK
+        async function syncTechToCloud(techObj) {
+            if (window.db && window.currentUser) {
+                const { doc, setDoc } = window.firestoreHelpers;
+                const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster', techObj.id);
+                await setDoc(docRef, techObj);
+            }
+            saveStorageData();
+        }
+
+        async function removeTechFromCloud(techId) {
+            if (window.db && window.currentUser) {
+                const { doc, deleteDoc } = window.firestoreHelpers;
+                const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster', techId);
+                await deleteDoc(docRef);
+            }
+            saveStorageData();
+        }
+
+        // APPLICATION INIT ON DOM LOAD
+        window.onload = function() {
+            loadStorageData();
+            renderDashboard();
+            renderInventoryTable();
+            renderTeamRoster();
+            renderCalibrationHub();
+            updateCalibBadgeCount();
+        };
+
+        // LOCAL STORAGE ENGINE FALLBACK
+        function loadStorageData() {
+            const savedEquip = localStorage.getItem('equiptrack_groups');
+            const savedTeam = localStorage.getItem('equiptrack_team');
+
+            if (savedEquip) equipmentData = JSON.parse(savedEquip);
+            if (savedTeam) teamRosterData = JSON.parse(savedTeam);
+        }
+
+        function saveStorageData() {
+            localStorage.setItem('equiptrack_groups', JSON.stringify(equipmentData));
+            localStorage.setItem('equiptrack_team', JSON.stringify(teamRosterData));
+            updateCalibBadgeCount();
+        }
+
+        function exportDatabase() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ equipment: equipmentData, team: teamRosterData }));
+            const dlAnchor = document.createElement('a');
+            dlAnchor.setAttribute("href", dataStr);
+            dlAnchor.setAttribute("download", `EquipTrack_Backup_${new Date().toISOString().split('T')[0]}.json`);
+            document.body.appendChild(dlAnchor);
+            dlAnchor.click();
+            dlAnchor.remove();
+        }
+
+        function importDatabase(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (parsed.equipment && parsed.team) {
+                        equipmentData = parsed.equipment;
+                        teamRosterData = parsed.team;
+                        saveStorageData();
+                        location.reload();
+                    } else {
+                        alert("Invalid JSON format.");
+                    }
+                } catch(err) {
+                    alert("Error parsing JSON backup file.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // VIEW & NAVIGATION SWITCHER
+        function switchTab(tabId) {
+            document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('text-blue-400', 'bg-slate-800/80');
+                btn.classList.add('text-slate-400');
+            });
+
+            if (tabId !== 'scanner') stopCameraScanner();
+            if (tabId !== 'create-group') closeOcrCameraModal();
+
+            const targetSection = document.getElementById(`view-${tabId}`);
+            if (targetSection) targetSection.classList.remove('hidden');
+
+            const activeNav = document.getElementById(`nav-${tabId}`);
+            if (activeNav) {
+                activeNav.classList.add('text-blue-400', 'bg-slate-800/80');
+                activeNav.classList.remove('text-slate-400');
+            }
+
+            // Mobile highlighting
+            document.querySelectorAll('nav.md\\:hidden button').forEach(b => {
+                b.classList.remove('text-blue-400', 'text-emerald-400', 'text-purple-400');
+                b.classList.add('text-slate-400');
+            });
+            const activeMobileNav = document.getElementById(`mobile-nav-${tabId}`);
+            if (activeMobileNav) {
+                activeMobileNav.classList.remove('text-slate-400');
+                activeMobileNav.classList.add(tabId === 'create-group' ? 'text-emerald-400' : tabId === 'reports' ? 'text-purple-400' : 'text-blue-400');
+            }
+
+            if (tabId === 'dashboard') renderDashboard();
+            if (tabId === 'inventory') renderInventoryTable();
+            if (tabId === 'team') renderTeamRoster();
+            if (tabId === 'calibration') renderCalibrationHub();
+            if (tabId === 'reports') renderReportsHub();
+        }
+
+        // CALIBRATION BADGE & UTILS
+        function getCalibStatus(dueDateStr) {
+            if (!dueDateStr) return { text: "No Date", class: "bg-slate-100 text-slate-600 border-slate-200" };
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const calibDate = new Date(dueDateStr + 'T00:00:00');
+            const diffDays = Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 0) return { text: `${Math.abs(diffDays)}d Overdue`, class: "bg-rose-100 text-rose-800 border-rose-300" };
+            if (diffDays <= 30) return { text: `Due in ${diffDays}d`, class: "bg-amber-100 text-amber-800 border-amber-300" };
+            return { text: "Good", class: "bg-emerald-100 text-emerald-800 border-emerald-300" };
+        }
+
+        function updateCalibBadgeCount() {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const count = equipmentData.filter(g => {
+                if (!g.calibrationDueDate) return false;
+                const calibDate = new Date(g.calibrationDueDate + 'T00:00:00');
+                return Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) <= 30;
+            }).length;
+
+            const badge = document.getElementById('calib-badge-count');
+            if (badge) badge.innerText = count;
+        }
+
+        // RENDER 1: DASHBOARD
+        function renderDashboard() {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+
+            const totalGroups = equipmentData.length;
+            const totalSerials = equipmentData.reduce((acc, g) => acc + (g.serials ? g.serials.length : 0), 0);
+            const checkedOut = equipmentData.filter(g => g.status === 'Checked Out').length;
+            const available = totalGroups - checkedOut;
+
+            const urgentCalib = equipmentData.filter(g => {
+                if (!g.calibrationDueDate) return false;
+                const calibDate = new Date(g.calibrationDueDate + 'T00:00:00');
+                return Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) <= 30;
+            }).length;
+
+            const overdueReturns = equipmentData.filter(g => {
+                if (g.status !== 'Checked Out' || !g.returnDueDate) return false;
+                return new Date(g.returnDueDate + 'T00:00:00') < today;
+            }).length;
+
+            document.getElementById('stat-total-groups').innerText = totalGroups;
+            document.getElementById('stat-total-serials').innerText = totalSerials;
+            document.getElementById('stat-checked-out').innerText = checkedOut;
+            document.getElementById('stat-available').innerText = available;
+            document.getElementById('stat-calib-urgent').innerText = urgentCalib;
+            document.getElementById('stat-overdue-returns').innerText = overdueReturns;
+
+            // Quick table
+            const tbody = document.getElementById('dash-recent-tbody');
+            tbody.innerHTML = '';
+            equipmentData.slice(0, 5).forEach(g => {
+                const calibState = getCalibStatus(g.calibrationDueDate);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="py-2.5 px-2 font-mono font-bold text-xs text-blue-600">${g.id}</td>
+                    <td class="py-2.5 px-2 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
+                    <td class="py-2.5 px-2 font-mono text-xs">${g.serials ? g.serials.length : 0}</td>
+                    <td class="py-2.5 px-2"><span class="px-2 py-0.5 text-[10px] font-bold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span></td>
+                    <td class="py-2.5 px-2"><span class="px-2 py-0.5 text-[10px] font-bold rounded-full border ${calibState.class}">${calibState.text}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Urgent alerts list
+            const alertList = document.getElementById('dash-calib-alert-list');
+            alertList.innerHTML = '';
+            const urgentItems = equipmentData.filter(g => {
+                if (!g.calibrationDueDate) return false;
+                return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
+            });
+
+            if (urgentItems.length === 0) {
+                alertList.innerHTML = `<div class="text-xs text-slate-400 italic">All equipment calibrations up to date.</div>`;
+            } else {
+                urgentItems.forEach(g => {
+                    const div = document.createElement('div');
+                    div.className = "p-2 bg-rose-50 border border-rose-200 rounded-xl flex justify-between items-center text-xs";
+                    div.innerHTML = `<div><strong class="text-slate-800">${g.id}</strong></div><span class="font-mono font-bold text-rose-700">${g.calibrationDueDate}</span>`;
+                    alertList.appendChild(div);
+                });
+            }
+        }
+
+        // RENDER 2: INVENTORY TABLE
+        function renderInventoryTable() {
+            const tbody = document.getElementById('inventory-tbody');
+            tbody.innerHTML = '';
+
+            const searchTerm = (document.getElementById('inv-search-input')?.value || '').toLowerCase();
+            const filterStatus = document.getElementById('inv-filter-status')?.value || 'ALL';
+
+            const filtered = equipmentData.filter(g => {
+                const matchSearch = !searchTerm || 
+                    g.id.toLowerCase().includes(searchTerm) || 
+                    (g.assignedUser && g.assignedUser.toLowerCase().includes(searchTerm)) ||
+                    (g.projectNumber && g.projectNumber.toLowerCase().includes(searchTerm)) ||
+                    (g.serials && g.serials.some(s => s.serialId.toLowerCase().includes(searchTerm)));
+                
+                const matchStatus = (filterStatus === 'ALL') || (g.status === filterStatus);
+                return matchSearch && matchStatus;
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach(g => {
+                const calibState = getCalibStatus(g.calibrationDueDate);
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
+                    <td class="px-4 py-3 font-mono text-center font-bold text-slate-700">${g.serials ? g.serials.length : 0}</td>
+                    <td class="px-4 py-3">
+                        <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span>
+                    </td>
+                    <td class="px-4 py-3 text-xs">
+                        ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</div><div class="text-slate-500 font-mono">${g.projectNumber || 'No Project'}</div>` : `<span class="text-slate-400 italic">In Shop</span>`}
+                    </td>
+                    <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
+                    <td class="px-4 py-3 text-right space-x-1">
+                        <button onclick="openBrotherPrinterModal('${g.id}')" title="Print Brother Label" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-print"></i></button>
+                        ${g.status === 'Checked Out' ? 
+                            `<button onclick="checkInGroup('${g.id}')" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-down-to-bracket"></i></button>` : 
+                            `<button onclick="openCheckoutModal('${g.id}')" title="Check Out" class="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>`}
+                        <button onclick="editEquipmentGroup('${g.id}')" title="Edit Group" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // RENDER 3: GROUP MANAGEMENT & FORM BUILDER
+        function prepareCreateGroupForm() {
+            resetGroupForm();
+            switchTab('create-group');
+        }
+
+        function resetGroupForm() {
+            document.getElementById('group-editor-form').reset();
+            document.getElementById('edit-group-original-id').value = '';
+            document.getElementById('group-form-heading').innerText = 'Group Management (Create New Group)';
+            document.getElementById('serial-rows-container').innerHTML = '';
+            // Seed initial 3 serial inputs
+            addSerialInputRow('');
+            addSerialInputRow('');
+            addSerialInputRow('');
+        }
+
+        function addSerialInputRow(value = '') {
+            const container = document.getElementById('serial-rows-container');
+            const currentRows = container.children.length;
+            if (currentRows >= 16) {
+                alert("Maximum limit of 16 serial numbers per group reached.");
+                return;
+            }
+
+            const index = currentRows + 1;
+            const div = document.createElement('div');
+            div.className = "flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-200";
+            div.innerHTML = `
+                <span class="text-[10px] font-bold text-slate-400 font-mono w-5">#${index}</span>
+                <input type="text" name="serialId[]" value="${value}" placeholder="Serial Number S/N" class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-emerald-500 outline-none">
+                <button type="button" onclick="this.parentElement.remove()" class="p-1.5 text-slate-400 hover:text-rose-600 text-xs"><i class="fa-solid fa-trash"></i></button>
+            `;
+            container.appendChild(div);
+        }
+
+        function editEquipmentGroup(groupId) {
+            const group = equipmentData.find(g => g.id === groupId);
+            if (!group) return;
+
+            switchTab('create-group');
+            document.getElementById('group-form-heading').innerText = `Edit Equipment Group (${group.id})`;
+            document.getElementById('edit-group-original-id').value = group.id;
+            document.getElementById('group-input-id').value = group.id;
+            document.getElementById('group-input-category').value = group.category || '';
+            document.getElementById('group-input-calib').value = group.calibrationDueDate || '';
+
+            const container = document.getElementById('serial-rows-container');
+            container.innerHTML = '';
+            if (group.serials && group.serials.length > 0) {
+                group.serials.forEach(s => addSerialInputRow(s.serialId));
+            } else {
+                addSerialInputRow('');
+            }
+        }
+
+        function saveEquipmentGroup(event) {
+            event.preventDefault();
+            const originalId = document.getElementById('edit-group-original-id').value;
+            const newId = document.getElementById('group-input-id').value.trim().toUpperCase();
+            const category = document.getElementById('group-input-category').value.trim();
+            const calibDate = document.getElementById('group-input-calib').value;
+
+            const serialInputs = document.querySelectorAll('#serial-rows-container input[name="serialId[]"]');
+            const serials = [];
+            serialInputs.forEach(inp => {
+                const val = inp.value.trim().toUpperCase();
+                if (val) serials.push({ serialId: val });
+            });
+
+            let groupObj = null;
+
+            if (originalId) {
+                const index = equipmentData.findIndex(g => g.id === originalId);
+                if (index !== -1) {
+                    groupObj = {
+                        ...equipmentData[index],
+                        id: newId,
+                        category: category,
+                        calibrationDueDate: calibDate,
+                        serials: serials
+                    };
+                    equipmentData[index] = groupObj;
+                    if (originalId !== newId) removeGroupFromCloud(originalId);
+                }
+            } else {
+                if (equipmentData.some(g => g.id === newId)) {
+                    alert("Group ID already exists! Please use a unique identifier.");
+                    return;
+                }
+                groupObj = {
+                    id: newId,
+                    category: category,
+                    calibrationDueDate: calibDate,
+                    status: "Available",
+                    assignedUser: "",
+                    projectNumber: "",
+                    returnDueDate: "",
+                    serials: serials
+                };
+                equipmentData.push(groupObj);
+            }
+
+            if (groupObj) syncGroupToCloud(groupObj);
+            switchTab('inventory');
+        }
+
+        // RENDER 4: TEAM ROSTER
+        function renderTeamRoster() {
+            const tbody = document.getElementById('team-tbody');
+            tbody.innerHTML = '';
+
+            if (teamRosterData.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No personnel registered in database.</td></tr>`;
+                return;
+            }
+
+            teamRosterData.forEach(t => {
+                const activeCheckouts = equipmentData.filter(g => g.assignedUser === t.name).length;
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50";
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-bold text-slate-800">${t.name}</td>
+                    <td class="px-4 py-3 text-slate-600">${t.role || 'N/A'}</td>
+                    <td class="px-4 py-3 text-slate-600">${t.dept || 'N/A'}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${activeCheckouts} Groups</td>
+                    <td class="px-4 py-3 text-right">
+                        <button onclick="deleteTeamMember('${t.id}')" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs transition"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openAddTeamModal() {
+            document.getElementById('team-form').reset();
+            document.getElementById('team-modal').classList.remove('hidden');
+        }
+
+        function closeTeamModal() {
+            document.getElementById('team-modal').classList.add('hidden');
+        }
+
+        function saveTeamMember(event) {
+            event.preventDefault();
+            const name = document.getElementById('team-input-name').value.trim();
+            const role = document.getElementById('team-input-role').value.trim();
+            const dept = document.getElementById('team-input-dept').value.trim();
+
+            const newTech = { id: `TECH-${Date.now()}`, name, role, dept };
+            teamRosterData.push(newTech);
+            syncTechToCloud(newTech);
+            closeTeamModal();
+            renderTeamRoster();
+        }
+
+        function deleteTeamMember(id) {
+            teamRosterData = teamRosterData.filter(t => t.id !== id);
+            removeTechFromCloud(id);
+            renderTeamRoster();
+        }
+
+        function deleteTeamMember(id) {
+            teamRosterData = teamRosterData.filter(t => t.id !== id);
+            saveStorageData();
+            renderTeamRoster();
+        }
+
+        // RENDER 5: CALIBRATION HUB
+        function renderCalibrationHub() {
+            const tbody = document.getElementById('calibration-tbody');
+            tbody.innerHTML = '';
+            const today = new Date();
+            today.setHours(0,0,0,0);
+
+            equipmentData.forEach(g => {
+                const calibDate = g.calibrationDueDate ? new Date(g.calibrationDueDate + 'T00:00:00') : null;
+                const diffDays = calibDate ? Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) : 999;
+                const calibState = getCalibStatus(g.calibrationDueDate);
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50";
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
+                    <td class="px-4 py-3 font-mono text-slate-600">${g.calibrationDueDate || 'N/A'}</td>
+                    <td class="px-4 py-3 font-medium ${diffDays < 0 ? 'text-rose-600 font-bold' : diffDays <= 30 ? 'text-amber-600 font-bold' : 'text-slate-600'}">
+                        ${calibDate ? (diffDays < 0 ? `${Math.abs(diffDays)} days overdue` : `${diffDays} days left`) : 'N/A'}
+                    </td>
+                    <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
+                    <td class="px-4 py-3 text-right">
+                        <button onclick="quickRecalibrate('${g.id}')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">+1 Year Renew</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function quickRecalibrate(groupId) {
+            const group = equipmentData.find(g => g.id === groupId);
+            if (!group) return;
+
+            const nextYear = new Date();
+            nextYear.setFullYear(nextYear.getFullYear() + 1);
+            group.calibrationDueDate = nextYear.toISOString().split('T')[0];
+
+            syncGroupToCloud(group);
+            renderCalibrationHub();
+            renderDashboard();
+        }
+<!-- ... existing code ... background tasks -->
+        function saveInlineTech() {
+            const name = document.getElementById('inline-tech-name').value.trim();
+            const role = document.getElementById('inline-tech-role').value.trim();
+            if (!name) return alert("Please enter technician name.");
+
+            const newTech = { id: `TECH-${Date.now()}`, name, role, dept: "Field Ops" };
+            teamRosterData.push(newTech);
+            syncTechToCloud(newTech);
+
+            const selectTech = document.getElementById('checkout-select-tech');
+            const opt = document.createElement('option');
+            opt.value = name; opt.innerText = `${name} (${role || 'Staff'})`;
+            opt.selected = true;
+            selectTech.appendChild(opt);
+
+            document.getElementById('inline-add-tech-box').classList.add('hidden');
+        }
+
+        function processCheckoutSubmit(event) {
+            event.preventDefault();
+            const groupId = document.getElementById('checkout-select-group').value;
+            const techName = document.getElementById('checkout-select-tech').value;
+            const projNo = document.getElementById('checkout-input-project').value.trim();
+            const returnDate = document.getElementById('checkout-input-returndate').value;
+
+            const group = equipmentData.find(g => g.id === groupId);
+            if (group) {
+                group.status = "Checked Out";
+                group.assignedUser = techName;
+                group.projectNumber = projNo;
+                group.returnDueDate = returnDate;
+                syncGroupToCloud(group);
+                closeCheckoutModal();
+                renderDashboard();
+                renderInventoryTable();
+            }
+        }
+
+        function checkInGroup(groupId) {
+            const group = equipmentData.find(g => g.id === groupId);
+            if (group) {
+                group.status = "Available";
+                group.assignedUser = "";
+                group.projectNumber = "";
+                group.returnDueDate = "";
+                syncGroupToCloud(group);
+                renderDashboard();
+                renderInventoryTable();
+            }
+        }
+
+        function checkInGroup(groupId) {
+            const group = equipmentData.find(g => g.id === groupId);
+            if (group) {
+                group.status = "Available";
+                group.assignedUser = "";
+                group.projectNumber = "";
+                group.returnDueDate = "";
+                saveStorageData();
+                renderDashboard();
+                renderInventoryTable();
+            }
+        }
+
+        // BROTHER P-TOUCH LABEL ENGINE
+        function openBrotherPrinterModal(groupId) {
+            const group = equipmentData.find(g => g.id === groupId);
+            if (!group) return;
+            activeLabelPrintGroup = group;
+
+            document.getElementById('brother-label-tag').innerText = group.id;
+            document.getElementById('brother-label-serials').innerText = group.serials ? group.serials.length : 0;
+
+            const calibBadge = document.getElementById('brother-label-calib-badge');
+            calibBadge.innerText = `Calib: ${group.calibrationDueDate || 'N/A'}`;
+
+            updateBrotherLabelPreview();
+            document.getElementById('brother-printer-modal').classList.remove('hidden');
+        }
+
+        function closeBrotherPrinterModal() {
+            document.getElementById('brother-printer-modal').classList.add('hidden');
+        }
+
+        function updateBrotherLabelPreview() {
+            if (!activeLabelPrintGroup) return;
+
+            // Render QR Code
+            const qrContainer = document.getElementById('brother-label-qrcode');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: activeLabelPrintGroup.id,
+                width: 64,
+                height: 64
+            });
+
+            const showCalib = document.getElementById('brother-show-calib').checked;
+            document.getElementById('brother-label-calib-container').style.display = showCalib ? 'block' : 'none';
+        }
+
+        function triggerBrotherPrint() {
+            window.print();
+        }
+
+        // CAMERA QR SCANNER & MANUAL SEARCH
+        function openScannerModal() {
+            switchTab('scanner');
+            startTabCameraScanner();
+        }
+
+        function startTabCameraScanner() {
+            if (html5QrScanner) return;
+            html5QrScanner = new Html5Qrcode("qr-reader-container");
+            html5QrScanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    stopCameraScanner();
+                    processScannedGroupTag(decodedText);
+                },
+                (errorMessage) => { /* scanning */ }
+            ).catch(err => {
+                document.getElementById('qr-scanner-placeholder').innerText = "Unable to access camera.";
+            });
+        }
+
+        function stopCameraScanner() {
+            if (html5QrScanner) {
+                html5QrScanner.stop().then(() => {
+                    html5QrScanner.clear();
+                    html5QrScanner = null;
+                }).catch(err => html5QrScanner = null);
+            }
+        }
+
+        function handleManualQrSearch() {
+            const tag = document.getElementById('manual-qr-input').value.trim().toUpperCase();
+            if (tag) processScannedGroupTag(tag);
+        }
+
+        function processScannedGroupTag(tag) {
+            const group = equipmentData.find(g => g.id === tag);
+            if (!group) {
+                alert(`Group Tag "${tag}" not found in inventory.`);
+                return;
+            }
+
+            if (group.status === 'Available') {
+                openCheckoutModal(group.id);
+            } else {
+                if (confirm(`Group ${group.id} is currently Checked Out to ${group.assignedUser}. Would you like to check it in now?`)) {
+                    checkInGroup(group.id);
+                }
+            }
+        }
+
+        // CAMERA OCR SERIAL SCANNER ENGINE
+        function openOcrCameraModal() {
+            document.getElementById('ocr-camera-modal').classList.remove('hidden');
+            const video = document.getElementById('ocr-video-feed');
+
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } })
+                .then(stream => {
+                    ocrVideoStream = stream;
+                    video.srcObject = stream;
+                })
+                .catch(err => {
+                    document.getElementById('ocr-status-badge').innerText = "Camera access denied or unavailable.";
+                });
+        }
+
+        function closeOcrCameraModal() {
+            if (ocrVideoStream) {
+                ocrVideoStream.getTracks().forEach(t => t.stop());
+                ocrVideoStream = null;
+            }
+            document.getElementById('ocr-camera-modal').classList.add('hidden');
+        }
+
+        function captureAndProcessOcrFrame() {
+            const video = document.getElementById('ocr-video-feed');
+            const canvas = document.getElementById('ocr-canvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            runOcrOnImage(canvas.toDataURL());
+        }
+
+        function handleOcrPhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => runOcrOnImage(e.target.result);
+            reader.readAsDataURL(file);
+        }
+
+        function runOcrOnImage(imageSrc) {
+            const statusBadge = document.getElementById('ocr-status-badge');
+            statusBadge.innerText = "Processing Image OCR text recognition...";
+
+            Tesseract.recognize(imageSrc, 'eng', { logger: m => console.log(m) })
+                .then(({ data: { text } }) => {
+                    const extractedLines = text.split('\n').map(l => l.replace(/[^A-Z0-9-]/gi, '').trim()).filter(l => l.length >= 3);
+                    if (extractedLines.length > 0) {
+                        const recognizedSerial = extractedLines[0].toUpperCase();
+                        addSerialInputRow(recognizedSerial);
+                        statusBadge.innerText = `Recognized: ${recognizedSerial}`;
+                        closeOcrCameraModal();
+                    } else {
+                        statusBadge.innerText = "No sharp serial text recognized. Retry snapshot.";
+                    }
+                })
+                .catch(err => {
+                    statusBadge.innerText = "OCR processing failed.";
+                });
+        }
+    </script>
+</body>
+</html>
