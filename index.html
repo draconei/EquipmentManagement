@@ -292,6 +292,17 @@
                     </button>
                 </div>
 
+                <div class="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2">
+                    <button onclick="window.switchInventoryTab('current')" id="inv-tab-current" class="inv-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition bg-blue-600 text-white shadow-sm">
+                        <i class="fa-solid fa-layer-group mr-1.5"></i> Current Inventory
+                    </button>
+                    <button onclick="window.switchInventoryTab('archive')" id="inv-tab-archive" class="inv-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition text-slate-600 hover:bg-slate-100">
+                        <i class="fa-solid fa-box-archive mr-1.5"></i> Usage Archive
+                        <span id="archive-tab-count" class="ml-1 bg-slate-200 text-slate-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">0</span>
+                    </button>
+                </div>
+
+                <div id="inv-current-panel" class="space-y-6">
                 <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3">
                     <div class="flex-1 relative">
                         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
@@ -320,6 +331,57 @@
                             </thead>
                             <tbody id="inventory-tbody" class="divide-y divide-slate-100"></tbody>
                         </table>
+                    </div>
+                </div>
+                </div>
+
+                <!-- USAGE ARCHIVE PANEL -->
+                <div id="inv-archive-panel" class="space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row gap-3 lg:items-center">
+                        <div class="flex-1 relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
+                            <input type="text" id="archive-search-input" oninput="window.renderArchive()" placeholder="Search by Group ID, Project, Technician, or Serial..." class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition">
+                        </div>
+                        <select id="archive-filter-group" onchange="window.renderArchive()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="ALL">All Groups</option>
+                        </select>
+                        <button onclick="window.exportArchiveCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 shadow-sm">
+                            <i class="fa-solid fa-file-csv mr-1"></i> Export CSV
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Archived Uses</span>
+                            <div class="text-xl font-extrabold text-slate-900" id="archive-stat-count">0</div>
+                        </div>
+                        <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Days Out</span>
+                            <div class="text-xl font-extrabold text-slate-900" id="archive-stat-days">0</div>
+                        </div>
+                        <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Avg Days / Use</span>
+                            <div class="text-xl font-extrabold text-slate-900" id="archive-stat-avg">0</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-sm">
+                                <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Group ID</th>
+                                        <th class="px-4 py-3">Technician</th>
+                                        <th class="px-4 py-3">Project / Location</th>
+                                        <th class="px-4 py-3">Checked Out</th>
+                                        <th class="px-4 py-3">Checked In</th>
+                                        <th class="px-4 py-3 text-center">Days Out</th>
+                                        <th class="px-4 py-3">Return</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="archive-tbody" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -827,6 +889,7 @@
     <!-- APPLICATION ENGINE -->
     <script>
         let equipmentData = [];
+        let archiveData = [];
         let teamRosterData = [];
         let html5QrScanner = null;
         let ocrVideoStream = null;
@@ -835,7 +898,7 @@
 
         const initialSeedEquipment = [
             { id: "GRP-RIG-001", category: "Lifting Equipment", calibrationDueDate: "2026-12-15", status: "Available", assignedUser: "", projectNumber: "", returnDueDate: "", serials: [{ serialId: "SHK-8841-A" }, { serialId: "SHK-8841-B" }, { serialId: "SLG-9902" }] },
-            { id: "GRP-SENS-002", category: "Sensors & Gauges", calibrationDueDate: "2026-11-20", status: "Checked Out", assignedUser: "Marcus Vance", projectNumber: "PRJ-TEX-9921", returnDueDate: "2026-11-10", serials: [{ serialId: "PT-5510-X" }, { serialId: "PT-5511-X" }] }
+            { id: "GRP-SENS-002", category: "Sensors & Gauges", calibrationDueDate: "2026-11-20", status: "Checked Out", assignedUser: "Marcus Vance", projectNumber: "PRJ-TEX-9921", checkedOutDate: "2026-11-02", returnDueDate: "2026-11-10", serials: [{ serialId: "PT-5510-X" }, { serialId: "PT-5511-X" }] }
         ];
 
         const initialSeedTeam = [
@@ -850,6 +913,16 @@
 
             const equipCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups');
             const teamCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster');
+            const archiveCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'usage_archive');
+
+            onSnapshot(archiveCollectionRef, (snapshot) => {
+                if (snapshot.empty) return;
+                const merged = new Map(archiveData.map(r => [r.id, r]));
+                snapshot.forEach(docSnap => { const r = docSnap.data(); merged.set(r.id, r); });
+                archiveData = Array.from(merged.values());
+                saveStorageData();
+                window.renderArchive();
+            }, (err) => console.warn("Archive listener error", err));
 
             onSnapshot(equipCollectionRef, (snapshot) => {
                 if (snapshot.empty && equipmentData.length === 0) {
@@ -886,6 +959,7 @@
             window.renderTeamRoster();
             window.renderCalibrationHub();
             window.updateCalibBadgeCount();
+            window.renderArchive();
             const reportsView = document.getElementById('view-reports');
             if (reportsView && !reportsView.classList.contains('hidden')) window.renderReportsHub();
         };
@@ -895,6 +969,19 @@
                 const { doc, setDoc } = window.firestoreHelpers;
                 const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', groupObj.id);
                 await setDoc(docRef, groupObj);
+            }
+            saveStorageData();
+        }
+
+        async function syncArchiveToCloud(record) {
+            try {
+                if (window.db && window.currentUser) {
+                    const { doc, setDoc } = window.firestoreHelpers;
+                    const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'usage_archive', record.id);
+                    await setDoc(docRef, record);
+                }
+            } catch (err) {
+                console.warn("Archive cloud sync failed; kept locally.", err);
             }
             saveStorageData();
         }
@@ -936,18 +1023,21 @@
         function loadStorageData() {
             const savedEquip = localStorage.getItem('equiptrack_groups');
             const savedTeam = localStorage.getItem('equiptrack_team');
+            const savedArchive = localStorage.getItem('equiptrack_archive');
             if (savedEquip) equipmentData = JSON.parse(savedEquip);
             if (savedTeam) teamRosterData = JSON.parse(savedTeam);
+            if (savedArchive) archiveData = JSON.parse(savedArchive);
         }
 
         function saveStorageData() {
             localStorage.setItem('equiptrack_groups', JSON.stringify(equipmentData));
             localStorage.setItem('equiptrack_team', JSON.stringify(teamRosterData));
+            localStorage.setItem('equiptrack_archive', JSON.stringify(archiveData));
             window.updateCalibBadgeCount();
         }
 
         window.exportDatabase = function() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ equipment: equipmentData, team: teamRosterData }));
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ equipment: equipmentData, team: teamRosterData, archive: archiveData }));
             const dlAnchor = document.createElement('a');
             dlAnchor.setAttribute("href", dataStr);
             dlAnchor.setAttribute("download", `EquipTrack_Backup_${new Date().toISOString().split('T')[0]}.json`);
@@ -966,7 +1056,9 @@
                     if (parsed.equipment && parsed.team) {
                         equipmentData = parsed.equipment;
                         teamRosterData = parsed.team;
+                        archiveData = Array.isArray(parsed.archive) ? parsed.archive : [];
                         saveStorageData();
+                        archiveData.forEach(r => syncArchiveToCloud(r));
                         location.reload();
                     } else { alert("Invalid JSON format."); }
                 } catch(err) { alert("Error parsing JSON file."); }
@@ -1129,6 +1221,7 @@
                         ${g.status === 'Checked Out' ? 
                             `<button onclick="window.checkInGroup('${g.id}')" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-down-to-bracket"></i></button>` : 
                             `<button onclick="window.openCheckoutModal('${g.id}')" title="Check Out" class="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>`}
+                        <button onclick="window.viewGroupHistory('${g.id}')" title="Usage History" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-clock-rotate-left"></i></button>
                         <button onclick="window.editEquipmentGroup('${g.id}')" title="Edit Group" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
                     </td>
                 `;
@@ -1442,6 +1535,7 @@
                 group.status = "Checked Out";
                 group.assignedUser = techName;
                 group.projectNumber = projNo;
+                group.checkedOutDate = localDateStr();
                 group.returnDueDate = returnDate;
                 syncGroupToCloud(group);
                 window.closeCheckoutModal();
@@ -1453,9 +1547,38 @@
         window.checkInGroup = function(groupId) {
             const group = equipmentData.find(g => g.id === groupId);
             if (group) {
+                if (group.status === 'Checked Out') {
+                    const checkedInDate = localDateStr();
+                    const outDate = group.checkedOutDate || '';
+                    let daysOut = null;
+                    if (outDate) {
+                        const diff = Math.round((new Date(checkedInDate + 'T00:00:00') - new Date(outDate + 'T00:00:00')) / 86400000);
+                        daysOut = Math.max(1, diff);
+                    }
+                    let daysLate = 0;
+                    if (group.returnDueDate) {
+                        daysLate = Math.max(0, Math.round((new Date(checkedInDate + 'T00:00:00') - new Date(group.returnDueDate + 'T00:00:00')) / 86400000));
+                    }
+                    const record = {
+                        id: `ARC-${Date.now()}-${group.id}`,
+                        groupId: group.id,
+                        category: group.category || '',
+                        technician: group.assignedUser || '',
+                        projectNumber: group.projectNumber || '',
+                        checkedOutDate: outDate,
+                        returnDueDate: group.returnDueDate || '',
+                        checkedInDate,
+                        daysOut,
+                        daysLate,
+                        serials: (group.serials || []).map(s => s.serialId)
+                    };
+                    archiveData.push(record);
+                    syncArchiveToCloud(record);
+                }
                 group.status = "Available";
                 group.assignedUser = "";
                 group.projectNumber = "";
+                group.checkedOutDate = "";
                 group.returnDueDate = "";
                 syncGroupToCloud(group);
                 window.renderDashboard();
@@ -1783,6 +1906,119 @@
         };
 
         window.printCurrentReport = function() { window.print(); };
+
+        // ---------- USAGE ARCHIVE ----------
+        function localDateStr(d = new Date()) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function escapeHtml(v) {
+            return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        window.switchInventoryTab = function(tab) {
+            const showArchive = tab === 'archive';
+            document.getElementById('inv-current-panel')?.classList.toggle('hidden', showArchive);
+            document.getElementById('inv-archive-panel')?.classList.toggle('hidden', !showArchive);
+            document.querySelectorAll('.inv-tab-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'text-white', 'shadow-sm');
+                btn.classList.add('text-slate-600');
+            });
+            const active = document.getElementById(`inv-tab-${tab}`);
+            if (active) {
+                active.classList.add('bg-blue-600', 'text-white', 'shadow-sm');
+                active.classList.remove('text-slate-600');
+            }
+            if (showArchive) window.renderArchive();
+        };
+
+        window.viewGroupHistory = function(groupId) {
+            window.switchInventoryTab('archive');
+            const sel = document.getElementById('archive-filter-group');
+            const search = document.getElementById('archive-search-input');
+            if (search) search.value = '';
+            window.renderArchive();
+            if (sel) { sel.value = groupId; window.renderArchive(); }
+        };
+
+        function getFilteredArchive() {
+            const term = (document.getElementById('archive-search-input')?.value || '').toLowerCase();
+            const groupFilter = document.getElementById('archive-filter-group')?.value || 'ALL';
+            return archiveData
+                .filter(r => {
+                    if (groupFilter !== 'ALL' && r.groupId !== groupFilter) return false;
+                    if (!term) return true;
+                    return [r.groupId, r.technician, r.projectNumber, r.category, ...(r.serials || [])]
+                        .some(v => String(v || '').toLowerCase().includes(term));
+                })
+                .sort((a, b) => (b.checkedInDate || '').localeCompare(a.checkedInDate || '') || (b.id || '').localeCompare(a.id || ''));
+        }
+
+        window.renderArchive = function() {
+            const tbody = document.getElementById('archive-tbody');
+            const tabCount = document.getElementById('archive-tab-count');
+            if (tabCount) tabCount.innerText = archiveData.length;
+            if (!tbody) return;
+
+            // keep the group filter options in sync with the archive
+            const sel = document.getElementById('archive-filter-group');
+            if (sel) {
+                const current = sel.value || 'ALL';
+                const ids = Array.from(new Set(archiveData.map(r => r.groupId))).sort();
+                sel.innerHTML = '<option value="ALL">All Groups</option>' + ids.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
+                sel.value = ids.includes(current) ? current : 'ALL';
+            }
+
+            const rows = getFilteredArchive();
+            const withDays = rows.filter(r => typeof r.daysOut === 'number');
+            const totalDays = withDays.reduce((a, r) => a + r.daysOut, 0);
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+            setText('archive-stat-count', rows.length);
+            setText('archive-stat-days', totalDays);
+            setText('archive-stat-avg', withDays.length ? (totalDays / withDays.length).toFixed(1) : '—');
+
+            if (rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">No archived usage yet. Records appear here when a group is checked in.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = rows.map(r => {
+                const returnBadge = r.daysLate > 0
+                    ? `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">${r.daysLate}d late</span>`
+                    : `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On time</span>`;
+                const serialCount = (r.serials || []).length;
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="px-4 py-3"><div class="font-mono font-bold text-blue-600">${escapeHtml(r.groupId)}</div><div class="text-[11px] text-slate-400">${escapeHtml(r.category)}${serialCount ? ` · ${serialCount} serials` : ''}</div></td>
+                        <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(r.technician) || '<span class="text-slate-400 italic">Unassigned</span>'}</td>
+                        <td class="px-4 py-3 font-mono text-xs text-slate-600">${escapeHtml(r.projectNumber) || 'N/A'}</td>
+                        <td class="px-4 py-3 font-mono text-xs">${escapeHtml(r.checkedOutDate) || '—'}</td>
+                        <td class="px-4 py-3 font-mono text-xs">${escapeHtml(r.checkedInDate)}</td>
+                        <td class="px-4 py-3 text-center font-mono font-bold text-slate-800">${typeof r.daysOut === 'number' ? r.daysOut : '—'}</td>
+                        <td class="px-4 py-3">${returnBadge}</td>
+                    </tr>`;
+            }).join('');
+        };
+
+        window.exportArchiveCSV = function() {
+            const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            let csv = "Group ID,Category,Technician,Project / Location,Checked Out,Checked In,Days Out,Scheduled Return,Days Late,Serials\n";
+            getFilteredArchive().forEach(r => {
+                csv += [q(r.groupId), q(r.category), q(r.technician), q(r.projectNumber), q(r.checkedOutDate), q(r.checkedInDate),
+                        typeof r.daysOut === 'number' ? r.daysOut : '""', q(r.returnDueDate), r.daysLate || 0, q((r.serials || []).join('; '))].join(',') + "\n";
+            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `EquipTrack_Usage_Archive_${localDateStr()}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        };
     </script>
 </body>
 </html>
