@@ -849,6 +849,20 @@
         </div>
     </div>
 
+    <!-- MODAL: PROJECT DETAIL -->
+    <div id="project-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-xl overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
+                <div>
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Project</span>
+                    <h3 id="project-modal-title" class="font-mono font-extrabold text-lg text-slate-900"></h3>
+                </div>
+                <button type="button" onclick="window.closeProjectModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="project-modal-body" class="p-6 space-y-6 overflow-y-auto"></div>
+        </div>
+    </div>
+
     <!-- MODAL: GROUP NOTES -->
     <div id="notes-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
@@ -1389,7 +1403,9 @@
                         <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span>
                     </td>
                     <td class="px-4 py-3 text-xs">
-                        ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</div><div class="text-slate-500 font-mono">${g.projectNumber || 'No Project'}</div>` : `<span class="text-slate-400 italic">In Shop</span>${g.location ? `<div class="text-slate-600 not-italic font-semibold"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</div>` : ''}`}
+                        ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</div>${(g.projectNumber || '').trim()
+                            ? `<button type="button" data-project="${escapeHtml(g.projectNumber)}" onclick="window.openProjectModal(this.dataset.project)" title="View groups for this project" class="text-blue-600 hover:text-blue-800 hover:underline font-mono text-left">${escapeHtml(g.projectNumber)}</button>`
+                            : '<div class="text-slate-500 font-mono">No Project</div>'}` : `<span class="text-slate-400 italic">In Shop</span>${g.location ? `<div class="text-slate-600 not-italic font-semibold"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</div>` : ''}`}
                     </td>
                     <td class="px-4 py-3 font-mono text-xs text-slate-700">${g.status === 'Checked Out' ? (escapeHtml(g.checkedOutDate) || '<span class="text-slate-400 italic">Not recorded</span>') : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>') : '<span class="text-slate-300">—</span>'}</td>
@@ -1452,6 +1468,72 @@
                 <button type="button" onclick="this.parentElement.remove()" class="p-1.5 text-slate-400 hover:text-rose-600 text-xs"><i class="fa-solid fa-trash"></i></button>
             `;
             container.appendChild(div);
+        };
+
+        window.openProjectModal = function(project) {
+            const key = String(project || '').trim().toLowerCase();
+            if (!key) return;
+            const same = v => String(v || '').trim().toLowerCase() === key;
+            const current = equipmentData.filter(g => g.status === 'Checked Out' && same(g.projectNumber))
+                .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+            const past = archiveData.filter(r => same(r.projectNumber))
+                .sort((a, b) => (b.checkedInDate || '').localeCompare(a.checkedInDate || '') || (b.id || '').localeCompare(a.id || ''));
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const dayMs = 86400000;
+            const th = (t, c = '') => `<th class="px-3 py-2.5 ${c}">${t}</th>`;
+            const mono = v => `<span class="font-mono text-xs">${escapeHtml(v) || '—'}</span>`;
+            const gl = id => `<button type="button" data-group="${escapeHtml(id)}" onclick="window.closeProjectModal(); window.openGroupFromSerial(this.dataset.group)" title="View in Inventory" class="font-mono font-bold text-blue-600 hover:underline">${escapeHtml(id)}</button>`;
+            const empty = msg => `<div class="px-4 py-6 text-center text-sm text-slate-400">${msg}</div>`;
+
+            const currentRows = current.map(g => {
+                const due = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
+                const late = due && due < today ? Math.round((today - due) / dayMs) : 0;
+                const daysOut = g.checkedOutDate ? Math.max(1, Math.round((today - new Date(g.checkedOutDate + 'T00:00:00')) / dayMs)) : null;
+                return `<tr class="${late ? 'bg-rose-50' : ''}">
+                    <td class="px-3 py-2.5">${gl(g.id)}<div class="text-[11px] text-slate-400">${escapeHtml(g.category) || 'General Equipment'} · ${g.serials ? g.serials.length : 0} serials</div></td>
+                    <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</td>
+                    <td class="px-3 py-2.5">${mono(g.checkedOutDate)}</td>
+                    <td class="px-3 py-2.5 text-center font-mono font-bold">${daysOut ?? '—'}</td>
+                    <td class="px-3 py-2.5">${mono(g.returnDueDate)}</td>
+                    <td class="px-3 py-2.5">${late ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">${late}d overdue</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On schedule</span>'}</td>
+                </tr>`;
+            }).join('');
+
+            const pastRows = past.map(r => `<tr>
+                    <td class="px-3 py-2.5">${gl(r.groupId)}<div class="text-[11px] text-slate-400">${escapeHtml(r.category)}</div></td>
+                    <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHtml(r.technician) || 'Unassigned'}</td>
+                    <td class="px-3 py-2.5">${mono(r.checkedOutDate)}</td>
+                    <td class="px-3 py-2.5">${mono(r.checkedInDate)}</td>
+                    <td class="px-3 py-2.5 text-center font-mono font-bold">${typeof r.daysOut === 'number' ? r.daysOut : '—'}</td>
+                    <td class="px-3 py-2.5">${r.daysLate > 0 ? `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">${r.daysLate}d late</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On time</span>'}</td>
+                    <td class="px-3 py-2.5 text-xs text-slate-700">${escapeHtml(r.checkedInLocation) || '<span class="text-slate-300">—</span>'}</td>
+                </tr>`).join('');
+
+            const head = 'bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200';
+            const wrap = inner => `<div class="border border-slate-200 rounded-xl overflow-hidden"><div class="overflow-x-auto">${inner}</div></div>`;
+            document.getElementById('project-modal-title').innerText = String(project).trim();
+            document.getElementById('project-modal-body').innerHTML = `
+                <section class="space-y-2">
+                    <div class="flex items-center space-x-2 text-amber-600"><i class="fa-solid fa-hand-holding"></i><h4 class="font-bold text-slate-800 text-sm">Currently Assigned Groups <span class="ml-1 px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] rounded-full">${current.length}</span></h4></div>
+                    ${current.length === 0 ? wrap(empty('No groups are currently checked out to this project.')) : wrap(`
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead class="${head}"><tr>${th('Group')}${th('Checked Out To')}${th('Checked Out')}${th('Days Out', 'text-center')}${th('Return By')}${th('Status')}</tr></thead>
+                        <tbody class="divide-y divide-slate-100">${currentRows}</tbody>
+                    </table>`)}
+                </section>
+                <section class="space-y-2">
+                    <div class="flex items-center space-x-2 text-purple-600"><i class="fa-solid fa-box-archive"></i><h4 class="font-bold text-slate-800 text-sm">Archive: Previously Checked Out <span class="ml-1 px-2 py-0.5 bg-purple-100 text-purple-800 text-[11px] rounded-full">${past.length}</span></h4></div>
+                    ${past.length === 0 ? wrap(empty('No groups have been checked in from this project yet.')) : wrap(`
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead class="${head}"><tr>${th('Group')}${th('Technician')}${th('Checked Out')}${th('Checked In')}${th('Days Out', 'text-center')}${th('Return')}${th('Checked In At')}</tr></thead>
+                        <tbody class="divide-y divide-slate-100">${pastRows}</tbody>
+                    </table>`)}
+                </section>`;
+            document.getElementById('project-modal').classList.remove('hidden');
+        };
+
+        window.closeProjectModal = function() {
+            document.getElementById('project-modal')?.classList.add('hidden');
         };
 
         window.openNotesModal = function(groupId) {
