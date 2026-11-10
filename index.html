@@ -494,9 +494,9 @@
                         <table class="w-full text-left border-collapse text-sm">
                             <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
                                 <tr>
-                                    <th class="px-4 py-3">Technician / Staff Name</th>
-                                    <th class="px-4 py-3">Role / Title</th>
-                                    <th class="px-4 py-3">Department</th>
+                                    <th class="px-4 py-3 select-none" data-team-sort="name" aria-sort="none"><button type="button" onclick="window.sortTeam('name')" title="Sort by Technician / Staff Name" class="inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition"><span>Technician / Staff Name</span><i class="team-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 select-none" data-team-sort="role" aria-sort="none"><button type="button" onclick="window.sortTeam('role')" title="Sort by Role / Title" class="inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition"><span>Role / Title</span><i class="team-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 select-none" data-team-sort="dept" aria-sort="none"><button type="button" onclick="window.sortTeam('dept')" title="Sort by Department" class="inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition"><span>Department</span><i class="team-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3">Contact Email / Phone</th>
                                     <th class="px-4 py-3">Active Checkouts</th>
                                     <th class="px-4 py-3 text-right">Actions</th>
@@ -1483,17 +1483,41 @@
             window.switchTab('inventory');
         };
 
+        const alphaCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), undefined, { sensitivity: 'base', numeric: true });
+        const sortedTeamByName = () => teamRosterData.slice().sort((a, b) => alphaCompare(a.name, b.name));
+        let teamSort = { key: 'name', dir: 'asc' };
+
+        window.sortTeam = function(key) {
+            teamSort = teamSort.key === key
+                ? { key, dir: teamSort.dir === 'asc' ? 'desc' : 'asc' }
+                : { key, dir: 'asc' };
+            window.renderTeamRoster();
+        };
+
         window.renderTeamRoster = function() {
             const tbody = document.getElementById('team-tbody');
             if (!tbody) return;
             tbody.innerHTML = '';
+
+            document.querySelectorAll('th[data-team-sort]').forEach(th => {
+                const active = th.dataset.teamSort === teamSort.key;
+                th.setAttribute('aria-sort', active ? (teamSort.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+                const icon = th.querySelector('.team-sort-icon');
+                if (icon) icon.className = 'team-sort-icon fa-solid ' + (active ? (teamSort.dir === 'asc' ? 'fa-sort-up text-blue-600' : 'fa-sort-down text-blue-600') : 'fa-sort text-slate-300');
+            });
 
             if (teamRosterData.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">No personnel registered in database.</td></tr>`;
                 return;
             }
 
-            teamRosterData.forEach(t => {
+            const dirMult = teamSort.dir === 'asc' ? 1 : -1;
+            teamRosterData.slice().sort((a, b) => {
+                const va = (a[teamSort.key] || '').trim(), vb = (b[teamSort.key] || '').trim();
+                if (!va && vb) return 1;            // blanks always last
+                if (va && !vb) return -1;
+                return alphaCompare(va, vb) * dirMult || alphaCompare(a.name, b.name);
+            }).forEach(t => {
                 const activeCheckouts = equipmentData.filter(g => g.assignedUser === t.name).length;
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50";
@@ -1638,7 +1662,7 @@
             const selectTech = document.getElementById('checkout-select-tech');
             if (selectTech) {
                 selectTech.innerHTML = '';
-                teamRosterData.forEach(t => {
+                sortedTeamByName().forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.name;
                     opt.innerText = `${t.name} (${t.role || 'Staff'})`;
@@ -1685,10 +1709,14 @@
 
             const selectTech = document.getElementById('checkout-select-tech');
             if (selectTech) {
-                const opt = document.createElement('option');
-                opt.value = name; opt.innerText = `${name} (${role || 'Staff'})`;
-                opt.selected = true;
-                selectTech.appendChild(opt);
+                // rebuild alphabetically so the new person lands in the right spot, and select them
+                selectTech.innerHTML = '';
+                sortedTeamByName().forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.name; opt.innerText = `${t.name} (${t.role || 'Staff'})`;
+                    if (t.id === newTech.id) opt.selected = true;
+                    selectTech.appendChild(opt);
+                });
             }
 
             const box = document.getElementById('inline-add-tech-box');
@@ -1996,7 +2024,7 @@
 
             const selectTech = document.getElementById('report-filter-tech');
             if (selectTech && selectTech.options.length <= 1) {
-                teamRosterData.forEach(t => {
+                sortedTeamByName().forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.name; opt.innerText = t.name;
                     selectTech.appendChild(opt);
