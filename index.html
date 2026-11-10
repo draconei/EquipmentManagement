@@ -342,14 +342,15 @@
                         <table class="w-full text-left border-collapse text-sm">
                             <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
                                 <tr>
-                                    <th class="px-4 py-3">Group ID</th>
-                                    <th class="px-4 py-3">Category</th>
-                                    <th class="px-4 py-3 text-center">Serials</th>
-                                    <th class="px-4 py-3">Status</th>
-                                    <th class="px-4 py-3">Assigned To / Project</th>
-                                    <th class="px-4 py-3">Return By</th>
-                                    <th class="px-4 py-3">Overdue?</th>
-                                    <th class="px-4 py-3">Calib Status</th>
+                                    <th class="px-4 py-3 " data-sort-key="id" aria-sort="none"><button type="button" onclick="window.sortInventory('id')" title="Sort by Group ID" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Group ID <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="category" aria-sort="none"><button type="button" onclick="window.sortInventory('category')" title="Sort by Category" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Category <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 text-center" data-sort-key="serials" aria-sort="none"><button type="button" onclick="window.sortInventory('serials')" title="Sort by Serials" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition justify-center w-full">Serials <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="status" aria-sort="none"><button type="button" onclick="window.sortInventory('status')" title="Sort by Status" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Status <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="assigned" aria-sort="none"><button type="button" onclick="window.sortInventory('assigned')" title="Sort by Assigned To / Project" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Assigned To / Project <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="checkedOut" aria-sort="none"><button type="button" onclick="window.sortInventory('checkedOut')" title="Sort by Check Out Date" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Check Out Date <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="returnBy" aria-sort="none"><button type="button" onclick="window.sortInventory('returnBy')" title="Sort by Return By" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Return By <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="overdue" aria-sort="none"><button type="button" onclick="window.sortInventory('overdue')" title="Sort by Overdue?" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Overdue? <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="calib" aria-sort="none"><button type="button" onclick="window.sortInventory('calib')" title="Sort by Calib Status" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Calib Status <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
@@ -829,9 +830,15 @@
                     <label class="block text-xs font-bold text-slate-600 mb-1">Project Number / Job Location *</label>
                     <input type="text" id="checkout-input-project" required placeholder="e.g. PRJ-2026-X89 / Offshore Platform Alpha" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Scheduled Return Date *</label>
-                    <input type="date" id="checkout-input-returndate" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="checkout-input-outdate" class="block text-xs font-bold text-slate-600 mb-1">Check Out Date *</label>
+                        <input type="date" id="checkout-input-outdate" required onchange="window.syncCheckoutDateMin()" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="checkout-input-returndate" class="block text-xs font-bold text-slate-600 mb-1">Scheduled Return Date *</label>
+                        <input type="date" id="checkout-input-returndate" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
                 </div>
                 <div class="flex items-center justify-end space-x-2 pt-2">
                     <button type="button" onclick="window.closeCheckoutModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
@@ -1267,6 +1274,57 @@
             }
         };
 
+        let invSort = { key: null, dir: 'asc' };
+
+        window.sortInventory = function(key) {
+            if (invSort.key === key) invSort.dir = invSort.dir === 'asc' ? 'desc' : 'asc';
+            else invSort = { key, dir: 'asc' };
+            window.renderInventoryTable();
+        };
+
+        function invSortValue(g, key, todayMid) {
+            const out = g.status === 'Checked Out';
+            switch (key) {
+                case 'id': return g.id || '';
+                case 'category': return (g.category || 'General Equipment').toLowerCase();
+                case 'serials': return g.serials ? g.serials.length : 0;
+                case 'status': return g.status || '';
+                case 'assigned': return out ? `${(g.assignedUser || 'Unassigned').toLowerCase()} ${(g.projectNumber || '').toLowerCase()}` : null;
+                case 'checkedOut': return out && g.checkedOutDate ? g.checkedOutDate : null;
+                case 'returnBy': return out && g.returnDueDate ? g.returnDueDate : null;
+                case 'overdue': {
+                    if (!out) return null;
+                    const d = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
+                    return d && d < todayMid ? Math.round((todayMid - d) / 86400000) : 0;
+                }
+                case 'calib': return g.calibrationDueDate || null;
+            }
+            return '';
+        }
+
+        function sortInventoryList(list) {
+            if (!invSort.key) return list;
+            const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+            const dir = invSort.dir === 'asc' ? 1 : -1;
+            return list.map(g => ({ g, v: invSortValue(g, invSort.key, todayMid) })).sort((a, b) => {
+                // blanks always sit at the bottom, whichever direction is active
+                if (a.v === null && b.v === null) return String(a.g.id).localeCompare(String(b.g.id), undefined, { numeric: true });
+                if (a.v === null) return 1;
+                if (b.v === null) return -1;
+                const c = typeof a.v === 'number' && typeof b.v === 'number' ? a.v - b.v : String(a.v).localeCompare(String(b.v), undefined, { numeric: true });
+                return c !== 0 ? c * dir : String(a.g.id).localeCompare(String(b.g.id), undefined, { numeric: true });
+            }).map(x => x.g);
+        }
+
+        function updateInventorySortHeaders() {
+            document.querySelectorAll('#inv-current-panel th[data-sort-key]').forEach(th => {
+                const active = th.dataset.sortKey === invSort.key;
+                th.setAttribute('aria-sort', active ? (invSort.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+                const icon = th.querySelector('.inv-sort-icon');
+                if (icon) icon.className = 'inv-sort-icon fa-solid ' + (active ? (invSort.dir === 'asc' ? 'fa-sort-up text-blue-600' : 'fa-sort-down text-blue-600') : 'fa-sort text-slate-300');
+            });
+        }
+
         window.renderInventoryTable = function() {
             const tbody = document.getElementById('inventory-tbody');
             if (!tbody) return;
@@ -1275,7 +1333,8 @@
             const searchTerm = (document.getElementById('inv-search-input')?.value || '').toLowerCase();
             const filterStatus = document.getElementById('inv-filter-status')?.value || 'ALL';
 
-            const filtered = equipmentData.filter(g => {
+            updateInventorySortHeaders();
+            const filtered = sortInventoryList(equipmentData.filter(g => {
                 const matchSearch = !searchTerm || 
                     g.id.toLowerCase().includes(searchTerm) || 
                     (g.assignedUser && g.assignedUser.toLowerCase().includes(searchTerm)) ||
@@ -1283,10 +1342,10 @@
                     (g.serials && g.serials.some(s => s.serialId.toLowerCase().includes(searchTerm)));
                 const matchStatus = (filterStatus === 'ALL') || (g.status === filterStatus);
                 return matchSearch && matchStatus;
-            });
+            }));
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
                 return;
             }
 
@@ -1308,6 +1367,7 @@
                     <td class="px-4 py-3 text-xs">
                         ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</div><div class="text-slate-500 font-mono">${g.projectNumber || 'No Project'}</div>` : `<span class="text-slate-400 italic">In Shop</span>${g.location ? `<div class="text-slate-600 not-italic font-semibold"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</div>` : ''}`}
                     </td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-700">${g.status === 'Checked Out' ? (escapeHtml(g.checkedOutDate) || '<span class="text-slate-400 italic">Not recorded</span>') : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>') : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3">
                         ${g.status !== 'Checked Out' ? '<span class="text-slate-300">—</span>' : isOverdue
@@ -1586,8 +1646,20 @@
                 });
             }
 
+            const outDateInput = document.getElementById('checkout-input-outdate');
+            if (outDateInput) outDateInput.value = localDateStr();
+            const retInput = document.getElementById('checkout-input-returndate');
+            if (retInput) retInput.value = '';
+            window.syncCheckoutDateMin();
+
             const modal = document.getElementById('checkout-modal');
             if (modal) modal.classList.remove('hidden');
+        };
+
+        window.syncCheckoutDateMin = function() {
+            const out = document.getElementById('checkout-input-outdate')?.value;
+            const ret = document.getElementById('checkout-input-returndate');
+            if (ret) ret.min = out || '';
         };
 
         window.closeCheckoutModal = function() {
@@ -1629,13 +1701,15 @@
             const techName = document.getElementById('checkout-select-tech')?.value;
             const projNo = document.getElementById('checkout-input-project')?.value.trim();
             const returnDate = document.getElementById('checkout-input-returndate')?.value;
+            const outDate = document.getElementById('checkout-input-outdate')?.value || localDateStr();
+            if (returnDate && returnDate < outDate) { alert("The scheduled return date cannot be before the check out date."); return; }
 
             const group = equipmentData.find(g => g.id === groupId);
             if (group) {
                 group.status = "Checked Out";
                 group.assignedUser = techName;
                 group.projectNumber = projNo;
-                group.checkedOutDate = localDateStr();
+                group.checkedOutDate = outDate;
                 group.returnDueDate = returnDate;
                 syncGroupToCloud(group);
                 window.closeCheckoutModal();
