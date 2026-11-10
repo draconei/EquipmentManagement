@@ -117,6 +117,18 @@
             </div>
         </div>
 
+        <div class="px-4 pt-4">
+            <form onsubmit="event.preventDefault(); window.lookupSerial(document.getElementById('sidebar-serial-input').value);" class="relative">
+                <label for="sidebar-serial-input" class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Serial Number Lookup</label>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-500 text-xs"></i>
+                    <input type="text" id="sidebar-serial-input" list="serial-suggestions" autocomplete="off" placeholder="Enter serial number..." class="w-full pl-8 pr-14 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-mono uppercase text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    <button type="submit" class="absolute right-1.5 top-1.5 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-semibold transition">Go</button>
+                </div>
+                <datalist id="serial-suggestions"></datalist>
+            </form>
+        </div>
+
         <nav class="flex-1 p-4 space-y-1.5 overflow-y-auto">
             <button onclick="window.switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-blue-400 bg-slate-800/80 transition">
                 <i class="fa-solid fa-chart-pie text-lg w-6 text-center"></i>
@@ -190,6 +202,12 @@
                 </button>
             </div>
         </header>
+
+        <!-- MOBILE SERIAL LOOKUP (sidebar is hidden on small screens) -->
+        <form onsubmit="event.preventDefault(); window.lookupSerial(document.getElementById('mobile-serial-input').value);" class="md:hidden bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-2 shrink-0">
+            <input type="text" id="mobile-serial-input" list="serial-suggestions" autocomplete="off" placeholder="Serial number lookup..." class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono uppercase focus:ring-2 focus:ring-blue-500 outline-none">
+            <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold">Look Up</button>
+        </form>
 
         <!-- CONTENT VIEWS DISPLAY -->
         <main class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 pb-20 md:pb-6">
@@ -693,6 +711,21 @@
                 </div>
             </section>
 
+            <!-- VIEW 8: SERIAL LOOKUP -->
+            <section id="view-serial" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Serial Number Lookup</h2>
+                        <p class="text-sm text-slate-500">Current group, checkout status, calibration status, and usage history for a single serial number.</p>
+                    </div>
+                    <form onsubmit="event.preventDefault(); window.lookupSerial(document.getElementById('serial-view-input').value);" class="flex items-center gap-2">
+                        <input type="text" id="serial-view-input" list="serial-suggestions" autocomplete="off" placeholder="Serial number..." class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono uppercase focus:ring-2 focus:ring-blue-500 outline-none w-56">
+                        <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition">Look Up</button>
+                    </form>
+                </div>
+                <div id="serial-result" class="space-y-6"></div>
+            </section>
+
             <!-- VIEW 7: QR SCANNER STATION -->
             <section id="view-scanner" class="space-y-6 hidden">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -890,6 +923,7 @@
     <script>
         let equipmentData = [];
         let archiveData = [];
+        let currentSerialQuery = '';
         let teamRosterData = [];
         let html5QrScanner = null;
         let ocrVideoStream = null;
@@ -960,6 +994,8 @@
             window.renderCalibrationHub();
             window.updateCalibBadgeCount();
             window.renderArchive();
+            window.updateSerialSuggestions();
+            window.renderSerialLookup();
             const reportsView = document.getElementById('view-reports');
             if (reportsView && !reportsView.classList.contains('hidden')) window.renderReportsHub();
         };
@@ -1906,6 +1942,230 @@
         };
 
         window.printCurrentReport = function() { window.print(); };
+
+        // ---------- SERIAL LOOKUP ----------
+        window.updateSerialSuggestions = function() {
+            const list = document.getElementById('serial-suggestions');
+            if (!list) return;
+            const all = new Set();
+            equipmentData.forEach(g => (g.serials || []).forEach(s => s.serialId && all.add(s.serialId)));
+            archiveData.forEach(r => (r.serials || []).forEach(sn => sn && all.add(sn)));
+            list.innerHTML = Array.from(all).sort().map(sn => `<option value="${escapeHtml(sn)}"></option>`).join('');
+        };
+
+        window.lookupSerial = function(query) {
+            currentSerialQuery = String(query || '').trim();
+            ['sidebar-serial-input', 'serial-view-input', 'mobile-serial-input'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = currentSerialQuery;
+            });
+            window.switchTab('serial');
+            window.renderSerialLookup();
+        };
+
+        window.openGroupFromSerial = function(groupId) {
+            window.switchTab('inventory');
+            window.switchInventoryTab('current');
+            const input = document.getElementById('inv-search-input');
+            if (input) input.value = groupId;
+            window.renderInventoryTable();
+        };
+
+        window.openGroupHistoryFromSerial = function(groupId) {
+            window.switchTab('inventory');
+            window.viewGroupHistory(groupId);
+        };
+
+        window.renderSerialLookup = function() {
+            const box = document.getElementById('serial-result');
+            if (!box) return;
+            const raw = (currentSerialQuery || '').trim();
+
+            if (!raw) {
+                box.innerHTML = `
+                    <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-400 space-y-2">
+                        <i class="fa-solid fa-magnifying-glass text-4xl opacity-40"></i>
+                        <p class="text-sm">Enter a serial number in the sidebar search to see its group, checkout status, calibration status, and usage history.</p>
+                    </div>`;
+                return;
+            }
+
+            const needle = raw.toUpperCase();
+            const isMatch = sn => String(sn || '').toUpperCase() === needle;
+            const groups = equipmentData.filter(g => (g.serials || []).some(s => isMatch(s.serialId)));
+            const records = archiveData
+                .filter(r => (r.serials || []).some(isMatch))
+                .sort((a, b) => (b.checkedInDate || '').localeCompare(a.checkedInDate || '') || (b.id || '').localeCompare(a.id || ''));
+
+            // Not found: offer partial matches
+            if (groups.length === 0 && records.length === 0) {
+                const partial = new Map();
+                equipmentData.forEach(g => (g.serials || []).forEach(s => {
+                    if (String(s.serialId).toUpperCase().includes(needle)) partial.set(s.serialId, g.id);
+                }));
+                archiveData.forEach(r => (r.serials || []).forEach(sn => {
+                    if (String(sn).toUpperCase().includes(needle) && !partial.has(sn)) partial.set(sn, '');
+                }));
+                const chips = Array.from(partial.entries()).slice(0, 20).map(([sn, gid]) =>
+                    `<button data-serial="${escapeHtml(sn)}" onclick="window.lookupSerial(this.dataset.serial)" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-100 border border-slate-200 rounded-lg text-xs font-mono transition">${escapeHtml(sn)}${gid ? ` <span class="text-slate-400">· ${escapeHtml(gid)}</span>` : ''}</button>`
+                ).join(' ');
+                box.innerHTML = `
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+                        <div class="flex items-center space-x-2 text-rose-600"><i class="fa-solid fa-circle-exclamation"></i><h3 class="font-bold text-slate-800 text-base">Serial "${escapeHtml(raw)}" not found</h3></div>
+                        <p class="text-xs text-slate-500">It is not assigned to any equipment group and has no archived usage.</p>
+                        ${chips ? `<div class="pt-1"><span class="text-xs font-semibold text-slate-600 block mb-2">Similar serial numbers:</span><div class="flex flex-wrap gap-2">${chips}</div></div>` : ''}
+                    </div>`;
+                return;
+            }
+
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const dayMs = 1000 * 60 * 60 * 24;
+            let html = '';
+
+            // Header
+            html += `
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="flex items-center space-x-3">
+                        <div class="p-3 bg-indigo-100 text-indigo-700 rounded-xl text-xl"><i class="fa-solid fa-barcode"></i></div>
+                        <div>
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Serial Number</span>
+                            <div class="font-mono font-extrabold text-xl text-slate-900">${escapeHtml(needle)}</div>
+                        </div>
+                    </div>
+                    ${groups.length > 1 ? `<span class="px-3 py-1 bg-rose-100 text-rose-800 border border-rose-300 text-xs font-bold rounded-full"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Duplicate: listed in ${groups.length} groups</span>` : ''}
+                    ${groups.length === 0 ? `<span class="px-3 py-1 bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold rounded-full">Not currently assigned to a group</span>` : ''}
+                </div>`;
+
+            // Per-group cards: assignment, checkout status, calibration status
+            groups.forEach(g => {
+                const otherSerials = (g.serials || []).filter(s => !isMatch(s.serialId));
+                const chips = otherSerials.length
+                    ? otherSerials.map(s => `<button data-serial="${escapeHtml(s.serialId)}" onclick="window.lookupSerial(this.dataset.serial)" class="px-2 py-0.5 bg-slate-100 hover:bg-blue-100 rounded text-xs font-mono border border-slate-200 transition">${escapeHtml(s.serialId)}</button>`).join(' ')
+                    : '<span class="text-xs text-slate-400 italic">No other serials in this group</span>';
+
+                const checkedOut = g.status === 'Checked Out';
+                let checkoutBody;
+                if (checkedOut) {
+                    const returnDate = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
+                    const lateDays = returnDate && returnDate < today ? Math.round((today - returnDate) / dayMs) : 0;
+                    const daysOutSoFar = g.checkedOutDate ? Math.max(1, Math.round((today - new Date(g.checkedOutDate + 'T00:00:00')) / dayMs)) : null;
+                    checkoutBody = `
+                        <span class="inline-block px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800">Checked Out</span>
+                        ${lateDays > 0 ? `<span class="inline-block ml-1 px-2.5 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-800">${lateDays}d overdue</span>` : ''}
+                        <dl class="mt-3 space-y-1.5 text-xs">
+                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Technician</dt><dd class="font-bold text-slate-800 text-right">${escapeHtml(g.assignedUser) || 'Unassigned'}</dd></div>
+                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Project / Location</dt><dd class="font-mono text-slate-700 text-right">${escapeHtml(g.projectNumber) || 'N/A'}</dd></div>
+                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Checked Out</dt><dd class="font-mono text-slate-700">${escapeHtml(g.checkedOutDate) || '—'}</dd></div>
+                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Days Out So Far</dt><dd class="font-mono font-bold text-slate-800">${daysOutSoFar ?? '—'}</dd></div>
+                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Scheduled Return</dt><dd class="font-mono ${lateDays > 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}">${escapeHtml(g.returnDueDate) || '—'}</dd></div>
+                        </dl>`;
+                } else {
+                    checkoutBody = `
+                        <span class="inline-block px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800">Available in Shop</span>
+                        <p class="mt-3 text-xs text-slate-500">Not currently assigned to any technician or project.</p>`;
+                }
+
+                const calibState = getCalibStatus(g.calibrationDueDate);
+                const calibDate = g.calibrationDueDate ? new Date(g.calibrationDueDate + 'T00:00:00') : null;
+                const calibDiff = calibDate ? Math.ceil((calibDate - today) / dayMs) : null;
+                const calibBody = `
+                    <span class="inline-block px-2.5 py-1 text-xs font-bold rounded-full border ${calibState.class}">${escapeHtml(calibState.text)}</span>
+                    <dl class="mt-3 space-y-1.5 text-xs">
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500">Calibration Due</dt><dd class="font-mono text-slate-700">${escapeHtml(g.calibrationDueDate) || 'N/A'}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500">Days Remaining</dt><dd class="font-mono font-bold ${calibDiff !== null && calibDiff < 0 ? 'text-rose-600' : calibDiff !== null && calibDiff <= 30 ? 'text-amber-600' : 'text-slate-800'}">${calibDiff === null ? 'N/A' : calibDiff < 0 ? `${Math.abs(calibDiff)} overdue` : calibDiff}</dd></div>
+                    </dl>
+                    <p class="mt-3 text-[11px] text-slate-400">Calibration is tracked at the group level.</p>`;
+
+                html += `
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                                <div class="flex items-center space-x-2 mb-3 text-blue-600"><i class="fa-solid fa-layer-group"></i><h3 class="font-bold text-slate-800 text-sm">Current Group</h3></div>
+                                <div class="font-mono font-extrabold text-lg text-blue-600">${escapeHtml(g.id)}</div>
+                                <div class="text-xs text-slate-600 font-semibold">${escapeHtml(g.category) || 'General Equipment'}</div>
+                                <div class="mt-3"><span class="text-[11px] font-bold text-slate-500 block mb-1">Other serials in group (${otherSerials.length}):</span><div class="flex flex-wrap gap-1">${chips}</div></div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button data-group="${escapeHtml(g.id)}" onclick="window.openGroupFromSerial(this.dataset.group)" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition">View in Inventory</button>
+                                    <button data-group="${escapeHtml(g.id)}" onclick="window.openGroupHistoryFromSerial(this.dataset.group)" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition">Group History</button>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                                <div class="flex items-center space-x-2 mb-3 text-amber-600"><i class="fa-solid fa-hand-holding"></i><h3 class="font-bold text-slate-800 text-sm">Checkout Status</h3></div>
+                                ${checkoutBody}
+                            </div>
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                                <div class="flex items-center space-x-2 mb-3 text-rose-600"><i class="fa-solid fa-triangle-exclamation"></i><h3 class="font-bold text-slate-800 text-sm">Calibration Status</h3></div>
+                                ${calibBody}
+                            </div>
+                        </div>
+                    </div>`;
+            });
+
+            // Usage archive for this serial (+ in-progress checkout row)
+            const completedDays = records.filter(r => typeof r.daysOut === 'number');
+            const totalDays = completedDays.reduce((a, r) => a + r.daysOut, 0);
+            const inProgress = groups.filter(g => g.status === 'Checked Out');
+
+            const rowsHtml = [];
+            inProgress.forEach(g => {
+                rowsHtml.push(`
+                    <tr class="bg-amber-50/60">
+                        <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
+                        <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</td>
+                        <td class="px-4 py-3 font-mono text-xs text-slate-600">${escapeHtml(g.projectNumber) || 'N/A'}</td>
+                        <td class="px-4 py-3 font-mono text-xs">${escapeHtml(g.checkedOutDate) || '—'}</td>
+                        <td class="px-4 py-3 text-xs text-slate-400 italic">—</td>
+                        <td class="px-4 py-3 text-center text-slate-400">—</td>
+                        <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">In progress</span></td>
+                    </tr>`);
+            });
+            records.forEach(r => {
+                const badge = r.daysLate > 0
+                    ? `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">${r.daysLate}d late</span>`
+                    : `<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On time</span>`;
+                rowsHtml.push(`
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(r.groupId)}</td>
+                        <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(r.technician) || '<span class="text-slate-400 italic">Unassigned</span>'}</td>
+                        <td class="px-4 py-3 font-mono text-xs text-slate-600">${escapeHtml(r.projectNumber) || 'N/A'}</td>
+                        <td class="px-4 py-3 font-mono text-xs">${escapeHtml(r.checkedOutDate) || '—'}</td>
+                        <td class="px-4 py-3 font-mono text-xs">${escapeHtml(r.checkedInDate)}</td>
+                        <td class="px-4 py-3 text-center font-mono font-bold text-slate-800">${typeof r.daysOut === 'number' ? r.daysOut : '—'}</td>
+                        <td class="px-4 py-3">${badge}</td>
+                    </tr>`);
+            });
+
+            html += `
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center space-x-2 text-purple-600"><i class="fa-solid fa-box-archive"></i><h3 class="font-bold text-slate-800 text-sm">Usage Archive for ${escapeHtml(needle)}</h3></div>
+                        <div class="flex items-center gap-4 text-xs">
+                            <div><span class="text-slate-400 font-semibold">Completed uses</span> <span class="font-mono font-bold text-slate-800 ml-1">${records.length}</span></div>
+                            <div><span class="text-slate-400 font-semibold">Total days out</span> <span class="font-mono font-bold text-slate-800 ml-1">${totalDays}</span></div>
+                        </div>
+                    </div>
+                    ${rowsHtml.length === 0 ? `<div class="px-4 py-8 text-center text-slate-400 text-sm">No archived use for this serial yet. Records appear when its group is checked in.</div>` : `
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">Group ID</th>
+                                    <th class="px-4 py-3">Technician</th>
+                                    <th class="px-4 py-3">Project / Location</th>
+                                    <th class="px-4 py-3">Checked Out</th>
+                                    <th class="px-4 py-3">Checked In</th>
+                                    <th class="px-4 py-3 text-center">Days Out</th>
+                                    <th class="px-4 py-3">Return</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">${rowsHtml.join('')}</tbody>
+                        </table>
+                    </div>`}
+                    <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400">Serials are checked out as part of their group, so each record reflects a group checkout that included this serial.</div>
+                </div>`;
+
+            box.innerHTML = html;
+        };
 
         // ---------- USAGE ARCHIVE ----------
         function localDateStr(d = new Date()) {
