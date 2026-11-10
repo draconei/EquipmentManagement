@@ -222,40 +222,44 @@
                 </div>
 
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                    <div role="button" tabindex="0" onclick="window.openStatReport('total')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.openStatReport('total')}" title="View Total Groups report" class="stat-card group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2 cursor-pointer hover:border-blue-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
                         <div class="flex items-center justify-between">
                             <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Groups</span>
                             <div class="p-2 bg-blue-50 text-blue-600 rounded-xl"><i class="fa-solid fa-boxes-stacked"></i></div>
                         </div>
                         <div class="text-2xl font-extrabold text-slate-900" id="stat-total-groups">0</div>
                         <p class="text-xs text-slate-500"><span class="font-medium text-slate-700" id="stat-total-serials">0</span> total serial units</p>
+                        <p class="text-[11px] font-semibold text-blue-600 opacity-70 group-hover:opacity-100">View report →</p>
                     </div>
 
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                    <div role="button" tabindex="0" onclick="window.openStatReport('checked-out')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.openStatReport('checked-out')}" title="View Checked Out report" class="stat-card group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2 cursor-pointer hover:border-blue-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
                         <div class="flex items-center justify-between">
                             <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Checked Out</span>
                             <div class="p-2 bg-amber-50 text-amber-600 rounded-xl"><i class="fa-solid fa-hand-holding"></i></div>
                         </div>
                         <div class="text-2xl font-extrabold text-slate-900" id="stat-checked-out">0</div>
                         <p class="text-xs text-slate-500"><span class="font-medium text-slate-700" id="stat-available">0</span> available in shop</p>
+                        <p class="text-[11px] font-semibold text-blue-600 opacity-70 group-hover:opacity-100">View report →</p>
                     </div>
 
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                    <div role="button" tabindex="0" onclick="window.openStatReport('calibration')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.openStatReport('calibration')}" title="View Calibrations Due report" class="stat-card group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2 cursor-pointer hover:border-blue-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
                         <div class="flex items-center justify-between">
                             <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Calibrations Due</span>
                             <div class="p-2 bg-rose-50 text-rose-600 rounded-xl"><i class="fa-solid fa-triangle-exclamation"></i></div>
                         </div>
                         <div class="text-2xl font-extrabold text-rose-600" id="stat-calib-urgent">0</div>
                         <p class="text-xs text-slate-500">Due within 30 days or overdue</p>
+                        <p class="text-[11px] font-semibold text-blue-600 opacity-70 group-hover:opacity-100">View report →</p>
                     </div>
 
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                    <div role="button" tabindex="0" onclick="window.openStatReport('overdue')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.openStatReport('overdue')}" title="View Overdue Returns report" class="stat-card group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2 cursor-pointer hover:border-blue-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
                         <div class="flex items-center justify-between">
                             <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Overdue Returns</span>
                             <div class="p-2 bg-purple-50 text-purple-600 rounded-xl"><i class="fa-solid fa-clock-rotate-left"></i></div>
                         </div>
                         <div class="text-2xl font-extrabold text-slate-900" id="stat-overdue-returns">0</div>
                         <p class="text-xs text-slate-500">Past target return date</p>
+                        <p class="text-[11px] font-semibold text-blue-600 opacity-70 group-hover:opacity-100">View report →</p>
                     </div>
                 </div>
 
@@ -343,6 +347,8 @@
                                     <th class="px-4 py-3 text-center">Serials</th>
                                     <th class="px-4 py-3">Status</th>
                                     <th class="px-4 py-3">Assigned To / Project</th>
+                                    <th class="px-4 py-3">Return By</th>
+                                    <th class="px-4 py-3">Overdue?</th>
                                     <th class="px-4 py-3">Calib Status</th>
                                     <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
@@ -711,6 +717,30 @@
                 </div>
             </section>
 
+            <!-- VIEW 9: DASHBOARD STAT REPORT -->
+            <section id="view-stat" class="space-y-6 hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <button onclick="window.switchTab('dashboard')" class="text-xs font-semibold text-blue-600 hover:text-blue-700 mb-2"><i class="fa-solid fa-arrow-left mr-1"></i> Back to Dashboard</button>
+                        <h2 id="stat-report-title" class="text-2xl font-bold text-slate-900 tracking-tight">Report</h2>
+                        <p id="stat-report-subtitle" class="text-sm text-slate-500"></p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="window.exportStatReportCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm"><i class="fa-solid fa-file-csv mr-1"></i> Export CSV</button>
+                        <button onclick="window.print()" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1 shadow-sm"><i class="fa-solid fa-print mr-1"></i> Print</button>
+                    </div>
+                </div>
+                <div id="stat-report-summary" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead id="stat-report-thead" class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200"></thead>
+                            <tbody id="stat-report-tbody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
             <!-- VIEW 8: SERIAL LOOKUP -->
             <section id="view-serial" class="space-y-6 hidden">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -924,6 +954,7 @@
         let equipmentData = [];
         let archiveData = [];
         let currentSerialQuery = '';
+        let currentStatReport = null;
         let teamRosterData = [];
         let html5QrScanner = null;
         let ocrVideoStream = null;
@@ -996,6 +1027,7 @@
             window.renderArchive();
             window.updateSerialSuggestions();
             window.renderSerialLookup();
+            window.renderStatReport();
             const reportsView = document.getElementById('view-reports');
             if (reportsView && !reportsView.classList.contains('hidden')) window.renderReportsHub();
         };
@@ -1233,14 +1265,18 @@
             });
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
                 return;
             }
 
+            const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
             filtered.forEach(g => {
                 const calibState = getCalibStatus(g.calibrationDueDate);
+                const retDate = g.status === 'Checked Out' && g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
+                const daysLate = retDate && retDate < todayMid ? Math.round((todayMid - retDate) / 86400000) : 0;
+                const isOverdue = daysLate > 0;
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 transition";
+                tr.className = isOverdue ? "bg-rose-100 hover:bg-rose-200 border-l-4 border-rose-500 transition" : "hover:bg-slate-50 transition";
                 tr.innerHTML = `
                     <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
                     <td class="px-4 py-3 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
@@ -1250,6 +1286,12 @@
                     </td>
                     <td class="px-4 py-3 text-xs">
                         ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</div><div class="text-slate-500 font-mono">${g.projectNumber || 'No Project'}</div>` : `<span class="text-slate-400 italic">In Shop</span>`}
+                    </td>
+                    <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>') : '<span class="text-slate-300">—</span>'}</td>
+                    <td class="px-4 py-3">
+                        ${g.status !== 'Checked Out' ? '<span class="text-slate-300">—</span>' : isOverdue
+                            ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">Yes · ${daysLate}d overdue</span>`
+                            : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">No</span>'}
                     </td>
                     <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
                     <td class="px-4 py-3 text-right space-x-1">
@@ -1942,6 +1984,144 @@
         };
 
         window.printCurrentReport = function() { window.print(); };
+
+        // ---------- DASHBOARD STAT REPORTS ----------
+        window.openStatReport = function(type) {
+            currentStatReport = type;
+            window.switchTab('stat');
+            window.renderStatReport();
+            document.querySelector('main')?.scrollTo?.(0, 0);
+        };
+
+        function buildStatReport(type) {
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const dayMs = 1000 * 60 * 60 * 24;
+            const daysBetween = (a, b) => Math.round((a - b) / dayMs);
+            const parse = d => d ? new Date(d + 'T00:00:00') : null;
+            const groupLink = id => `<button data-group="${escapeHtml(id)}" onclick="window.openGroupFromSerial(this.dataset.group)" title="View in Inventory" class="font-mono font-bold text-blue-600 hover:underline">${escapeHtml(id)}</button>`;
+            const pill = (text, cls) => `<span class="px-2.5 py-1 text-xs font-semibold rounded-full ${cls}">${escapeHtml(text)}</span>`;
+            const loc = g => g.status === 'Checked Out' ? (g.projectNumber || 'N/A') : 'In shop';
+            const locHtml = g => g.status === 'Checked Out'
+                ? `<span class="font-mono text-xs text-slate-700">${escapeHtml(g.projectNumber) || 'N/A'}</span>`
+                : `<span class="text-xs text-slate-500">In shop</span>`;
+            const tech = g => g.status === 'Checked Out' ? (g.assignedUser || 'Unassigned') : '';
+            const techHtml = g => g.status === 'Checked Out' ? `<span class="font-semibold text-slate-800">${escapeHtml(tech(g))}</span>` : '<span class="text-slate-300">—</span>';
+            const daysOutOf = g => g.checkedOutDate ? Math.max(1, daysBetween(today, parse(g.checkedOutDate))) : null;
+            const daysLateOf = g => { const d = parse(g.returnDueDate); return d && d < today ? daysBetween(today, d) : 0; };
+            const calibDiff = g => g.calibrationDueDate ? daysBetween(parse(g.calibrationDueDate), today) : null;
+            const out = equipmentData.filter(g => g.status === 'Checked Out');
+            const dash = '—';
+            const C = (label, cls = '') => ({ label, cls });
+
+            if (type === 'overdue') {
+                const list = out.filter(g => daysLateOf(g) > 0).sort((a, b) => daysLateOf(b) - daysLateOf(a));
+                return {
+                    title: 'Overdue Returns', subtitle: 'Checked-out groups that are past their scheduled return date, most overdue first.',
+                    columns: [C('Group ID'), C('Category'), C('Location / Project'), C('Checked Out To'), C('Checked Out'), C('Due Back'), C('Days Overdue', 'text-center')],
+                    empty: 'No overdue returns. Every checked-out group is within its return date.',
+                    summary: [['Overdue Groups', list.length], ['Most Days Overdue', list.length ? daysLateOf(list[0]) : 0], ['Total Days Overdue', list.reduce((a, g) => a + daysLateOf(g), 0)]],
+                    rows: list.map(g => ({
+                        cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment', locHtml(g), techHtml(g),
+                                `<span class="font-mono text-xs">${escapeHtml(g.checkedOutDate) || dash}</span>`, `<span class="font-mono text-xs text-rose-600 font-bold">${escapeHtml(g.returnDueDate)}</span>`,
+                                `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-800">${daysLateOf(g)} day${daysLateOf(g) === 1 ? '' : 's'}</span>`],
+                        csv: [g.id, g.category || '', loc(g), tech(g), g.checkedOutDate || '', g.returnDueDate || '', daysLateOf(g)]
+                    }))
+                };
+            }
+
+            if (type === 'checked-out') {
+                const list = out.slice().sort((a, b) => (a.returnDueDate || '9999').localeCompare(b.returnDueDate || '9999'));
+                const late = list.filter(g => daysLateOf(g) > 0).length;
+                return {
+                    title: 'Checked Out Groups', subtitle: 'Every group currently out in the field, soonest return date first.',
+                    columns: [C('Group ID'), C('Category'), C('Location / Project'), C('Checked Out To'), C('Checked Out'), C('Days Out', 'text-center'), C('Due Back'), C('Return Status')],
+                    empty: 'Nothing is checked out right now.',
+                    summary: [['Checked Out', list.length], ['Available in Shop', equipmentData.length - out.length], ['Overdue', late]],
+                    rows: list.map(g => {
+                        const late = daysLateOf(g);
+                        return {
+                            cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment', locHtml(g), techHtml(g),
+                                    `<span class="font-mono text-xs">${escapeHtml(g.checkedOutDate) || dash}</span>`, `<span class="font-mono font-bold text-slate-800">${daysOutOf(g) ?? dash}</span>`,
+                                    `<span class="font-mono text-xs">${escapeHtml(g.returnDueDate) || dash}</span>`,
+                                    late > 0 ? pill(`${late}d overdue`, 'bg-rose-100 text-rose-800') : pill('On schedule', 'bg-emerald-100 text-emerald-800')],
+                            csv: [g.id, g.category || '', loc(g), tech(g), g.checkedOutDate || '', daysOutOf(g) ?? '', g.returnDueDate || '', late > 0 ? `${late}d overdue` : 'On schedule']
+                        };
+                    })
+                };
+            }
+
+            if (type === 'calibration') {
+                const list = equipmentData.filter(g => { const d = calibDiff(g); return d !== null && d <= 30; }).sort((a, b) => calibDiff(a) - calibDiff(b));
+                const overdueCal = list.filter(g => calibDiff(g) < 0).length;
+                return {
+                    title: 'Calibrations Due', subtitle: 'Groups whose calibration is overdue or due within 30 days, most urgent first.',
+                    columns: [C('Group ID'), C('Category'), C('Current Location'), C('Checked Out To'), C('Calibration Due'), C('Days Remaining', 'text-center'), C('Status')],
+                    empty: 'No calibrations are due within the next 30 days.',
+                    summary: [['Calibrations Due', list.length], ['Overdue', overdueCal], ['Due Within 30 Days', list.length - overdueCal]],
+                    rows: list.map(g => {
+                        const d = calibDiff(g), st = getCalibStatus(g.calibrationDueDate);
+                        return {
+                            cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment', locHtml(g), techHtml(g),
+                                    `<span class="font-mono text-xs">${escapeHtml(g.calibrationDueDate)}</span>`,
+                                    `<span class="font-mono font-bold ${d < 0 ? 'text-rose-600' : 'text-amber-600'}">${d < 0 ? `${Math.abs(d)} overdue` : d}</span>`,
+                                    `<span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${st.class}">${escapeHtml(st.text)}</span>`],
+                            csv: [g.id, g.category || '', loc(g), tech(g), g.calibrationDueDate || '', d < 0 ? `${Math.abs(d)} overdue` : d, st.text]
+                        };
+                    })
+                };
+            }
+
+            // total
+            const list = equipmentData.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            const serialTotal = list.reduce((a, g) => a + (g.serials ? g.serials.length : 0), 0);
+            return {
+                title: 'All Equipment Groups', subtitle: 'Every group in the system with its serials, current location, and calibration state.',
+                columns: [C('Group ID'), C('Category'), C('Serials'), C('Status'), C('Location / Project'), C('Checked Out To'), C('Calibration')],
+                empty: 'No equipment groups have been created yet.',
+                summary: [['Total Groups', list.length], ['Total Serials', serialTotal], ['Available', list.length - out.length], ['Checked Out', out.length]],
+                rows: list.map(g => {
+                    const st = getCalibStatus(g.calibrationDueDate);
+                    const serials = (g.serials || []).map(x => x.serialId);
+                    return {
+                        cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment',
+                                `<div class="font-mono text-xs font-bold">${serials.length}</div><div class="text-[11px] text-slate-400 font-mono max-w-[220px] truncate" title="${escapeHtml(serials.join(', '))}">${escapeHtml(serials.join(', '))}</div>`,
+                                g.status === 'Checked Out' ? pill('Checked Out', 'bg-amber-100 text-amber-800') : pill('Available', 'bg-emerald-100 text-emerald-800'),
+                                locHtml(g), techHtml(g),
+                                `<span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${st.class}">${escapeHtml(st.text)}</span>`],
+                        csv: [g.id, g.category || '', serials.join('; '), g.status, loc(g), tech(g), g.calibrationDueDate || '']
+                    };
+                })
+            };
+        }
+
+        window.renderStatReport = function() {
+            const tbody = document.getElementById('stat-report-tbody');
+            if (!tbody || !currentStatReport) return;
+            const r = buildStatReport(currentStatReport);
+            document.getElementById('stat-report-title').innerText = r.title;
+            document.getElementById('stat-report-subtitle').innerText = r.subtitle;
+            document.getElementById('stat-report-summary').innerHTML = r.summary.map(([label, val]) => `
+                <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">${escapeHtml(label)}</span>
+                    <div class="text-xl font-extrabold text-slate-900">${escapeHtml(val)}</div>
+                </div>`).join('');
+            document.getElementById('stat-report-thead').innerHTML = `<tr>${r.columns.map(c => `<th class="px-4 py-3 ${c.cls}">${escapeHtml(c.label)}</th>`).join('')}</tr>`;
+            tbody.innerHTML = r.rows.length === 0
+                ? `<tr><td colspan="${r.columns.length}" class="px-4 py-10 text-center text-slate-400">${escapeHtml(r.empty)}</td></tr>`
+                : r.rows.map(row => `<tr class="hover:bg-slate-50 transition">${row.cells.map((c, i) => `<td class="px-4 py-3 ${r.columns[i].cls}">${c}</td>`).join('')}</tr>`).join('');
+        };
+
+        window.exportStatReportCSV = function() {
+            if (!currentStatReport) return;
+            const r = buildStatReport(currentStatReport);
+            const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            const csv = [r.columns.map(c => q(c.label)).join(',')].concat(r.rows.map(row => row.csv.map(q).join(','))).join('\n') + '\n';
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+            link.download = `EquipTrack_${currentStatReport}_${localDateStr()}.csv`;
+            document.body.appendChild(link); link.click(); link.remove();
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        };
 
         // ---------- SERIAL LOOKUP ----------
         window.updateSerialSuggestions = function() {
