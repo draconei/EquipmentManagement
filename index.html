@@ -401,6 +401,7 @@
                                         <th class="px-4 py-3">Checked In</th>
                                         <th class="px-4 py-3 text-center">Days Out</th>
                                         <th class="px-4 py-3">Return</th>
+                                        <th class="px-4 py-3">Checked In At</th>
                                     </tr>
                                 </thead>
                                 <tbody id="archive-tbody" class="divide-y divide-slate-100"></tbody>
@@ -843,6 +844,28 @@
         </div>
     </div>
 
+    <!-- MODAL: CHECK IN -->
+    <div id="checkin-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base">Equipment Group Check In</h3>
+                <button type="button" onclick="window.closeCheckInModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form id="checkin-form" onsubmit="window.processCheckInSubmit(event)" class="space-y-4">
+                <input type="hidden" id="checkin-group-id" value="">
+                <div id="checkin-group-summary" class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3"></div>
+                <div>
+                    <label for="checkin-location" class="block text-xs font-bold text-slate-600 mb-1">New Location *</label>
+                    <select id="checkin-location" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"></select>
+                </div>
+                <div class="flex items-center justify-end space-x-2 pt-2">
+                    <button type="button" onclick="window.closeCheckInModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check In</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- MODAL 2: BROTHER LABEL PRINTER -->
     <div id="brother-printer-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
@@ -955,6 +978,7 @@
         let archiveData = [];
         let currentSerialQuery = '';
         let currentStatReport = null;
+        const SHOP_LOCATIONS = ["College Station, TX", "Nashua, NH", "Blue Bell, PA", "Denver, CO", "Cary, NC"];
         let teamRosterData = [];
         let html5QrScanner = null;
         let ocrVideoStream = null;
@@ -1285,7 +1309,7 @@
                         <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span>
                     </td>
                     <td class="px-4 py-3 text-xs">
-                        ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</div><div class="text-slate-500 font-mono">${g.projectNumber || 'No Project'}</div>` : `<span class="text-slate-400 italic">In Shop</span>`}
+                        ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</div><div class="text-slate-500 font-mono">${g.projectNumber || 'No Project'}</div>` : `<span class="text-slate-400 italic">In Shop</span>${g.location ? `<div class="text-slate-600 not-italic font-semibold"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</div>` : ''}`}
                     </td>
                     <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>') : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3">
@@ -1624,6 +1648,32 @@
 
         window.checkInGroup = function(groupId) {
             const group = equipmentData.find(g => g.id === groupId);
+            if (!group) return;
+            document.getElementById('checkin-group-id').value = group.id;
+            document.getElementById('checkin-group-summary').innerHTML =
+                `<span class="font-mono font-bold text-blue-600">${escapeHtml(group.id)}</span> · ${escapeHtml(group.category) || 'General Equipment'}` +
+                (group.status === 'Checked Out' ? `<br>Checked out to <strong>${escapeHtml(group.assignedUser) || 'Unassigned'}</strong> · ${escapeHtml(group.projectNumber) || 'No project'}` : '');
+            const sel = document.getElementById('checkin-location');
+            sel.innerHTML = '<option value="" disabled selected>Select a location...</option>' +
+                SHOP_LOCATIONS.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+            document.getElementById('checkin-modal').classList.remove('hidden');
+            sel.focus();
+        };
+
+        window.closeCheckInModal = function() {
+            document.getElementById('checkin-modal')?.classList.add('hidden');
+        };
+
+        window.processCheckInSubmit = function(event) {
+            event.preventDefault();
+            const location = document.getElementById('checkin-location').value;
+            if (!SHOP_LOCATIONS.includes(location)) return;
+            finalizeCheckIn(document.getElementById('checkin-group-id').value, location);
+            window.closeCheckInModal();
+        };
+
+        function finalizeCheckIn(groupId, location) {
+            const group = equipmentData.find(g => g.id === groupId);
             if (group) {
                 if (group.status === 'Checked Out') {
                     const checkedInDate = localDateStr();
@@ -1648,6 +1698,7 @@
                         checkedInDate,
                         daysOut,
                         daysLate,
+                        checkedInLocation: location,
                         serials: (group.serials || []).map(s => s.serialId)
                     };
                     archiveData.push(record);
@@ -1658,11 +1709,11 @@
                 group.projectNumber = "";
                 group.checkedOutDate = "";
                 group.returnDueDate = "";
+                group.location = location;
                 syncGroupToCloud(group);
-                window.renderDashboard();
-                window.renderInventoryTable();
+                window.refreshAllViews();
             }
-        };
+        }
 
         window.openBrotherPrinterModal = function(groupId) {
             const group = equipmentData.find(g => g.id === groupId);
@@ -2000,10 +2051,10 @@
             const parse = d => d ? new Date(d + 'T00:00:00') : null;
             const groupLink = id => `<button data-group="${escapeHtml(id)}" onclick="window.openGroupFromSerial(this.dataset.group)" title="View in Inventory" class="font-mono font-bold text-blue-600 hover:underline">${escapeHtml(id)}</button>`;
             const pill = (text, cls) => `<span class="px-2.5 py-1 text-xs font-semibold rounded-full ${cls}">${escapeHtml(text)}</span>`;
-            const loc = g => g.status === 'Checked Out' ? (g.projectNumber || 'N/A') : 'In shop';
+            const loc = g => g.status === 'Checked Out' ? (g.projectNumber || 'N/A') : (g.location ? `In shop - ${g.location}` : 'In shop');
             const locHtml = g => g.status === 'Checked Out'
                 ? `<span class="font-mono text-xs text-slate-700">${escapeHtml(g.projectNumber) || 'N/A'}</span>`
-                : `<span class="text-xs text-slate-500">In shop</span>`;
+                : `<span class="text-xs text-slate-500">In shop${g.location ? ` · ${escapeHtml(g.location)}` : ''}</span>`;
             const tech = g => g.status === 'Checked Out' ? (g.assignedUser || 'Unassigned') : '';
             const techHtml = g => g.status === 'Checked Out' ? `<span class="font-semibold text-slate-800">${escapeHtml(tech(g))}</span>` : '<span class="text-slate-300">—</span>';
             const daysOutOf = g => g.checkedOutDate ? Math.max(1, daysBetween(today, parse(g.checkedOutDate))) : null;
@@ -2242,7 +2293,8 @@
                 } else {
                     checkoutBody = `
                         <span class="inline-block px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800">Available in Shop</span>
-                        <p class="mt-3 text-xs text-slate-500">Not currently assigned to any technician or project.</p>`;
+                        <p class="mt-3 text-xs text-slate-500">Not currently assigned to any technician or project.</p>
+                        ${g.location ? `<p class="mt-2 text-xs font-semibold text-slate-700"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</p>` : ''}`;
                 }
 
                 const calibState = getCalibStatus(g.calibrationDueDate);
@@ -2297,6 +2349,7 @@
                         <td class="px-4 py-3 text-xs text-slate-400 italic">—</td>
                         <td class="px-4 py-3 text-center text-slate-400">—</td>
                         <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">In progress</span></td>
+                        <td class="px-4 py-3 text-slate-300">—</td>
                     </tr>`);
             });
             records.forEach(r => {
@@ -2312,6 +2365,7 @@
                         <td class="px-4 py-3 font-mono text-xs">${escapeHtml(r.checkedInDate)}</td>
                         <td class="px-4 py-3 text-center font-mono font-bold text-slate-800">${typeof r.daysOut === 'number' ? r.daysOut : '—'}</td>
                         <td class="px-4 py-3">${badge}</td>
+                        <td class="px-4 py-3 text-xs text-slate-700">${escapeHtml(r.checkedInLocation) || '<span class="text-slate-300">—</span>'}</td>
                     </tr>`);
             });
 
@@ -2336,6 +2390,7 @@
                                     <th class="px-4 py-3">Checked In</th>
                                     <th class="px-4 py-3 text-center">Days Out</th>
                                     <th class="px-4 py-3">Return</th>
+                                    <th class="px-4 py-3">Checked In At</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">${rowsHtml.join('')}</tbody>
@@ -2421,7 +2476,7 @@
             setText('archive-stat-avg', withDays.length ? (totalDays / withDays.length).toFixed(1) : '—');
 
             if (rows.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">No archived usage yet. Records appear here when a group is checked in.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No archived usage yet. Records appear here when a group is checked in.</td></tr>`;
                 return;
             }
 
@@ -2439,16 +2494,17 @@
                         <td class="px-4 py-3 font-mono text-xs">${escapeHtml(r.checkedInDate)}</td>
                         <td class="px-4 py-3 text-center font-mono font-bold text-slate-800">${typeof r.daysOut === 'number' ? r.daysOut : '—'}</td>
                         <td class="px-4 py-3">${returnBadge}</td>
+                        <td class="px-4 py-3 text-xs text-slate-700">${escapeHtml(r.checkedInLocation) || '<span class="text-slate-300">—</span>'}</td>
                     </tr>`;
             }).join('');
         };
 
         window.exportArchiveCSV = function() {
             const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-            let csv = "Group ID,Category,Technician,Project / Location,Checked Out,Checked In,Days Out,Scheduled Return,Days Late,Serials\n";
+            let csv = "Group ID,Category,Technician,Project / Location,Checked Out,Checked In,Days Out,Scheduled Return,Days Late,Checked In At,Serials\n";
             getFilteredArchive().forEach(r => {
                 csv += [q(r.groupId), q(r.category), q(r.technician), q(r.projectNumber), q(r.checkedOutDate), q(r.checkedInDate),
-                        typeof r.daysOut === 'number' ? r.daysOut : '""', q(r.returnDueDate), r.daysLate || 0, q((r.serials || []).join('; '))].join(',') + "\n";
+                        typeof r.daysOut === 'number' ? r.daysOut : '""', q(r.returnDueDate), r.daysLate || 0, q(r.checkedInLocation), q((r.serials || []).join('; '))].join(',') + "\n";
             });
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
