@@ -351,6 +351,7 @@
                                     <th class="px-4 py-3 " data-sort-key="returnBy" aria-sort="none"><button type="button" onclick="window.sortInventory('returnBy')" title="Sort by Return By" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Return By <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="overdue" aria-sort="none"><button type="button" onclick="window.sortInventory('overdue')" title="Sort by Overdue?" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Overdue? <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="calib" aria-sort="none"><button type="button" onclick="window.sortInventory('calib')" title="Sort by Calib Status" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Calib Status <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="notes" aria-sort="none"><button type="button" onclick="window.sortInventory('notes')" title="Sort by Notes" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Notes <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
@@ -848,6 +849,28 @@
         </div>
     </div>
 
+    <!-- MODAL: GROUP NOTES -->
+    <div id="notes-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base">Group Notes <span id="notes-modal-group" class="font-mono text-blue-600 text-sm ml-1"></span></h3>
+                <button type="button" onclick="window.closeNotesModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form id="notes-form" onsubmit="window.saveGroupNotes(event)" class="space-y-4">
+                <input type="hidden" id="notes-group-id" value="">
+                <div>
+                    <label for="notes-textarea" class="block text-xs font-bold text-slate-600 mb-1">Notes</label>
+                    <textarea id="notes-textarea" rows="8" maxlength="5000" placeholder="Condition, damage, repairs, missing parts, handling instructions..." class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none resize-y"></textarea>
+                    <p class="text-[11px] text-slate-400 mt-1">Leave blank to remove all notes from this group.</p>
+                </div>
+                <div class="flex items-center justify-end space-x-2 pt-2">
+                    <button type="button" onclick="window.closeNotesModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm">Save Notes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- MODAL: CHECK IN -->
     <div id="checkin-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
@@ -1298,6 +1321,7 @@
                     return d && d < todayMid ? Math.round((todayMid - d) / 86400000) : 0;
                 }
                 case 'calib': return g.calibrationDueDate || null;
+                case 'notes': return (g.notes || '').trim() ? 1 : 0;
             }
             return '';
         }
@@ -1345,7 +1369,7 @@
             }));
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="11" class="px-4 py-8 text-center text-slate-400">No matching equipment groups found.</td></tr>`;
                 return;
             }
 
@@ -1375,12 +1399,18 @@
                             : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">No</span>'}
                     </td>
                     <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
+                    <td class="px-4 py-3">
+                        ${(g.notes || '').trim()
+                            ? `<span title="${escapeHtml((g.notes || '').trim().slice(0, 200))}" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-sky-100 text-sky-800 cursor-help">Yes</span>`
+                            : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-100 text-slate-500">No</span>'}
+                    </td>
                     <td class="px-4 py-3 text-right space-x-1">
                         <button onclick="window.openBrotherPrinterModal('${g.id}')" title="Print Brother Label" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-print"></i></button>
                         ${g.status === 'Checked Out' ? 
                             `<button onclick="window.checkInGroup('${g.id}')" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-down-to-bracket"></i></button>` : 
                             `<button onclick="window.openCheckoutModal('${g.id}')" title="Check Out" class="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>`}
                         <button onclick="window.viewGroupHistory('${g.id}')" title="Usage History" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                        <button data-group="${escapeHtml(g.id)}" onclick="window.openNotesModal(this.dataset.group)" title="${(g.notes || '').trim() ? 'View / Edit Notes' : 'Add Notes'}" class="p-1.5 ${(g.notes || '').trim() ? 'bg-sky-100 hover:bg-sky-200 text-sky-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} rounded-lg text-xs transition"><i class="fa-solid fa-note-sticky"></i></button>
                         <button onclick="window.editEquipmentGroup('${g.id}')" title="Edit Group" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
                     </td>
                 `;
@@ -1422,6 +1452,33 @@
                 <button type="button" onclick="this.parentElement.remove()" class="p-1.5 text-slate-400 hover:text-rose-600 text-xs"><i class="fa-solid fa-trash"></i></button>
             `;
             container.appendChild(div);
+        };
+
+        window.openNotesModal = function(groupId) {
+            const group = equipmentData.find(g => g.id === groupId);
+            if (!group) return;
+            document.getElementById('notes-group-id').value = group.id;
+            document.getElementById('notes-modal-group').innerText = group.id;
+            const ta = document.getElementById('notes-textarea');
+            ta.value = group.notes || '';
+            document.getElementById('notes-modal').classList.remove('hidden');
+            ta.focus();
+        };
+
+        window.closeNotesModal = function() {
+            document.getElementById('notes-modal')?.classList.add('hidden');
+        };
+
+        window.saveGroupNotes = function(event) {
+            event.preventDefault();
+            const group = equipmentData.find(g => g.id === document.getElementById('notes-group-id').value);
+            if (!group) return;
+            const text = document.getElementById('notes-textarea').value.trim();
+            if (text) group.notes = text; else delete group.notes;
+            window.closeNotesModal();
+            window.renderInventoryTable();
+            // setDoc replaces the whole document, so a removed note really is removed in the cloud too
+            syncGroupToCloud(group);
         };
 
         window.editEquipmentGroup = function(groupId) {
