@@ -352,7 +352,7 @@
                                     <th class="px-4 py-3 " data-sort-key="checkedOut" aria-sort="none"><button type="button" onclick="window.sortInventory('checkedOut')" title="Sort by Check Out Date" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Check Out Date <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="returnBy" aria-sort="none"><button type="button" onclick="window.sortInventory('returnBy')" title="Sort by Return By" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Return By <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="overdue" aria-sort="none"><button type="button" onclick="window.sortInventory('overdue')" title="Sort by Overdue?" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Overdue? <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
-                                    <th class="px-4 py-3 " data-sort-key="calib" aria-sort="none"><button type="button" onclick="window.sortInventory('calib')" title="Sort by Calib Status" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Calib Status <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="calib" aria-sort="none"><button type="button" onclick="window.sortInventory('calib')" title="Sort by Cal Due (days until calibration is due)" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Cal Due <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="notes" aria-sort="none"><button type="button" onclick="window.sortInventory('notes')" title="Sort by Notes" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Notes <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
@@ -1413,6 +1413,7 @@
             const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
             filtered.forEach(g => {
                 const calibState = getCalibStatus(g.calibrationDueDate);
+                const calDays = g.calibrationDueDate ? Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - todayMid) / 86400000) : null;
                 const retDate = g.status === 'Checked Out' && g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
                 const daysLate = retDate && retDate < todayMid ? Math.round((todayMid - retDate) / 86400000) : 0;
                 const isOverdue = daysLate > 0;
@@ -1437,7 +1438,7 @@
                             ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">Yes · ${daysLate}d overdue</span>`
                             : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">No</span>'}
                     </td>
-                    <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
+                    <td class="px-4 py-3"><span title="${calDays === null ? 'No calibration date set' : `Calibration due ${escapeHtml(g.calibrationDueDate)}${calDays < 0 ? ` (${Math.abs(calDays)} days overdue)` : ''}`}" class="inline-block min-w-[2.5rem] text-center px-2.5 py-1 text-xs font-bold font-mono rounded-full border ${calibState.class}">${calDays === null ? '—' : calDays}</span></td>
                     <td class="px-4 py-3">
                         ${(g.notes || '').trim()
                             ? `<span title="${escapeHtml((g.notes || '').trim().slice(0, 200))}" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-sky-100 text-sky-800 cursor-help">Yes</span>`
