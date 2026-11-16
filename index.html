@@ -474,7 +474,7 @@
                             <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
                             <input type="text" id="archive-search-input" oninput="window.renderArchive()" placeholder="Search by Group ID, Project, Technician, or Serial..." class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition">
                         </div>
-                        <select id="archive-filter-group" onchange="window.renderArchive()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <select id="archive-filter-group" onchange="window.onArchiveGroupChange()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
                             <option value="ALL">All Groups</option>
                         </select>
                         <button onclick="window.exportArchiveCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 shadow-sm">
@@ -727,7 +727,7 @@
 
                 <div class="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2">
                     <button onclick="window.switchReportTab('calib-due')" id="report-tab-calib-due" class="report-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition bg-blue-600 text-white shadow-sm">
-                        <i class="fa-solid fa-calendar-exclamation mr-1.5"></i> 1. Calibration Due
+                        <i class="fa-solid fa-calendar-day mr-1.5"></i> 1. Calibration Due
                     </button>
                     <button onclick="window.switchReportTab('assignments')" id="report-tab-assignments" class="report-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition text-slate-600 hover:bg-slate-100">
                         <i class="fa-solid fa-user-gear mr-1.5"></i> 2. User & Location
@@ -988,7 +988,7 @@
             <form id="checkout-form" onsubmit="window.processCheckoutSubmit(event)" class="space-y-4">
                 <input type="hidden" id="checkout-group-id" value="">
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Select Equipment Group *</label>
+                    <label id="checkout-group-label" class="block text-xs font-bold text-slate-600 mb-1">Select Equipment Group *</label>
                     <select id="checkout-select-group" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"></select>
                 </div>
                 <div>
@@ -1029,7 +1029,7 @@
                 </div>
                 <div class="flex items-center justify-end space-x-2 pt-2">
                     <button type="button" onclick="window.closeCheckoutModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
-                    <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check Out</button>
+                    <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm" id="checkout-submit-btn">Confirm Check Out</button>
                 </div>
             </form>
         </div>
@@ -1386,7 +1386,11 @@
                 document.getElementById(`auth-panel-${p}`)?.classList.toggle('hidden', p !== name);
             });
             const focusId = { login: 'login-email', change: 'force-new-password' }[name];
-            if (focusId) setTimeout(() => document.getElementById(focusId)?.focus(), 50);
+            // Move the cursor to the first field, but never steal it from a field the person is already typing in.
+            if (focusId) setTimeout(() => {
+                const active = document.activeElement;
+                if (!active || active === document.body || active.id === focusId) document.getElementById(focusId)?.focus();
+            }, 50);
         }
 
         function hideAuthOverlay() { document.getElementById('auth-overlay')?.classList.add('hidden'); }
@@ -2254,7 +2258,8 @@
                     <td class="px-4 py-3 text-right space-x-1">
                         <button data-id="${escapeHtml(g.id)}" onclick="window.openBrotherPrinterModal(this.dataset.id)" title="Print Brother Label" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-print"></i></button>
                         ${g.status === 'Checked Out' ? 
-                            `<button data-id="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.id)" data-priv="checkout" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-down-to-bracket"></i></button>` : 
+                            `<button data-id="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.id)" data-priv="checkout" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>` +
+                            `<button data-id="${escapeHtml(g.id)}" onclick="window.openCheckoutEditModal(this.dataset.id)" data-priv="checkout" title="Edit Check Out Info" aria-label="Edit check out information for ${escapeHtml(g.id)}" class="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg text-xs transition"><i class="fa-solid fa-user-pen"></i></button>` : 
                             `<button data-id="${escapeHtml(g.id)}" onclick="window.openCheckoutModal(this.dataset.id)" data-priv="checkout" title="Check Out" class="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>`}
                         <button data-id="${escapeHtml(g.id)}" onclick="window.viewGroupHistory(this.dataset.id)" title="Usage History" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-clock-rotate-left"></i></button>
                         <button data-group="${escapeHtml(g.id)}" onclick="window.openNotesModal(this.dataset.group)" title="${(g.notes || '').trim() ? 'View / Edit Notes' : 'Add Notes'}" class="p-1.5 ${(g.notes || '').trim() ? 'bg-sky-100 hover:bg-sky-200 text-sky-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} rounded-lg text-xs transition"><i class="fa-solid fa-note-sticky"></i></button>
@@ -2731,8 +2736,65 @@
             if (choice === 'permanent') applyPermanentState(true); else applyPermanentState(false);
         };
 
+        // null = normal check out; otherwise the id of the checked-out group whose details are being edited
+        let editingCheckoutGroupId = null;
+
+        function setCheckoutModalMode(editing) {
+            const g = document.getElementById('checkout-select-group');
+            if (g) g.disabled = !!editing;
+            const title = document.getElementById('checkout-modal-title');
+            if (title) title.textContent = editing ? 'Edit Check Out Information' : 'Equipment Group Check Out';
+            const btn = document.getElementById('checkout-submit-btn');
+            if (btn) btn.textContent = editing ? 'Save Changes' : 'Confirm Check Out';
+            const lbl = document.getElementById('checkout-group-label');
+            if (lbl) lbl.textContent = editing ? 'Equipment Group' : 'Select Equipment Group *';
+        }
+
+        window.openCheckoutEditModal = function(groupId) {
+            if (!requirePriv('checkout')) return;
+            const g = equipmentData.find(x => x.id === groupId);
+            if (!g || g.status !== 'Checked Out') return;
+            editingCheckoutGroupId = groupId;
+            setCheckoutModalMode(true);
+
+            const selectGroup = document.getElementById('checkout-select-group');
+            selectGroup.innerHTML = '';
+            const gopt = document.createElement('option');
+            gopt.value = g.id; gopt.textContent = `${g.id} (${g.category || 'General'} - ${g.serials ? g.serials.length : 0} Serials)`;
+            selectGroup.appendChild(gopt);
+
+            const selectTech = document.getElementById('checkout-select-tech');
+            selectTech.innerHTML = '';
+            const roster = sortedTeamByName();
+            roster.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.name; opt.textContent = `${t.name} (${t.role || 'Staff'})`;
+                selectTech.appendChild(opt);
+            });
+            // keep the current person selectable even if they are no longer on the roster
+            if (g.assignedUser && !roster.some(t => t.name === g.assignedUser)) {
+                const opt = document.createElement('option');
+                opt.value = g.assignedUser; opt.textContent = `${g.assignedUser} (not on roster)`;
+                selectTech.appendChild(opt);
+            }
+            selectTech.value = g.assignedUser || (roster[0] ? roster[0].name : '');
+
+            const perm = isPermanent(g);
+            const proj = document.getElementById('checkout-input-project');
+            const ret = document.getElementById('checkout-input-returndate');
+            document.getElementById('checkout-input-outdate').value = g.checkedOutDate || '';
+            applyPermanentState(false);
+            proj.value = perm ? '' : (g.projectNumber || '');
+            ret.value = perm ? '' : (g.returnDueDate || '');
+            if (perm) { proj.value = 'Permanent'; applyPermanentState(true); savedProjectBeforePermanent = ''; }
+            window.syncCheckoutDateMin();
+            document.getElementById('checkout-modal').classList.remove('hidden');
+        };
+
         window.openCheckoutModal = function(preselectGroupId) {
             if (!requirePriv('checkout')) return;
+            editingCheckoutGroupId = null;
+            setCheckoutModalMode(false);
             const selectGroup = document.getElementById('checkout-select-group');
             if (selectGroup) {
                 selectGroup.innerHTML = '';
@@ -2776,6 +2838,8 @@
         };
 
         window.closeCheckoutModal = function() {
+            editingCheckoutGroupId = null;
+            setCheckoutModalMode(false);
             document.getElementById('permanent-confirm-modal')?.classList.add('hidden');
             const modal = document.getElementById('checkout-modal');
             if (modal) modal.classList.add('hidden');
@@ -2826,7 +2890,11 @@
             const outDate = document.getElementById('checkout-input-outdate')?.value || localDateStr();
             if (returnDate && returnDate < outDate) { alert("The scheduled return date cannot be before the check out date."); return; }
 
-            const group = equipmentData.find(g => g.id === groupId);
+            const group = equipmentData.find(g => g.id === (editingCheckoutGroupId || groupId));
+            if (editingCheckoutGroupId && (!group || group.status !== 'Checked Out')) {
+                alert("This group is no longer checked out, so its check out information can't be edited.");
+                window.closeCheckoutModal(); return;
+            }
             if (group) {
                 group.status = "Checked Out";
                 group.assignedUser = techName;
@@ -3627,13 +3695,23 @@
             if (showArchive) window.renderArchive();
         };
 
+        // The group the Usage History button was clicked for. Kept separately from the archive records so the
+        // filter still applies (and says "no history") for a group that has no archive records yet.
+        let pinnedArchiveGroup = null;
+
         window.viewGroupHistory = function(groupId) {
             window.switchInventoryTab('archive');
-            const sel = document.getElementById('archive-filter-group');
             const search = document.getElementById('archive-search-input');
             if (search) search.value = '';
+            pinnedArchiveGroup = groupId;
+            const sel = document.getElementById('archive-filter-group');
+            if (sel) sel.value = groupId;   // renderArchive adds the option if the group has no records
             window.renderArchive();
-            if (sel) { sel.value = groupId; window.renderArchive(); }
+        };
+
+        window.onArchiveGroupChange = function() {
+            pinnedArchiveGroup = null;
+            window.renderArchive();
         };
 
         function getFilteredArchive() {
@@ -3658,8 +3736,8 @@
             // keep the group filter options in sync with the archive
             const sel = document.getElementById('archive-filter-group');
             if (sel) {
-                const current = sel.value || 'ALL';
-                const ids = Array.from(new Set(archiveData.map(r => r.groupId))).sort();
+                const current = pinnedArchiveGroup || sel.value || 'ALL';
+                const ids = Array.from(new Set(archiveData.map(r => r.groupId).concat(pinnedArchiveGroup ? [pinnedArchiveGroup] : []))).sort();
                 sel.innerHTML = '<option value="ALL">All Groups</option>' + ids.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
                 sel.value = ids.includes(current) ? current : 'ALL';
             }
@@ -3673,7 +3751,10 @@
             setText('archive-stat-avg', withDays.length ? (totalDays / withDays.length).toFixed(1) : '—');
 
             if (rows.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No archived usage yet. Records appear here when a group is checked in.</td></tr>`;
+                const picked = document.getElementById('archive-filter-group')?.value || 'ALL';
+                tbody.innerHTML = picked !== 'ALL'
+                    ? `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No usage history for <strong class="font-mono text-slate-600">${escapeHtml(picked)}</strong> yet. Records appear here each time this group is checked in.</td></tr>`
+                    : `<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No archived usage yet. Records appear here when a group is checked in.</td></tr>`;
                 return;
             }
 
