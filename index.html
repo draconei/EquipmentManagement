@@ -436,7 +436,7 @@
                         <option value="Available">Available in Shop</option>
                         <option value="Checked Out">Checked Out</option>
                     </select>
-                    <select id="inv-filter-site" onchange="window.renderInventoryTable()" title="Filter by location (group ID ending)" aria-label="Filter by location" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                    <select id="inv-filter-site" onchange="window.saveSiteFilter()" title="Filter by location (group ID ending)" aria-label="Filter by location" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
                         <option value="ALL">ALL</option>
                         <option value="TX">TX</option>
                         <option value="NH">NH</option>
@@ -1010,6 +1010,13 @@
                     <label class="block text-xs font-bold text-slate-600 mb-1">Project Number / Job Location *</label>
                     <input type="text" id="checkout-input-project" required placeholder="e.g. PRJ-2026-X89 / Offshore Platform Alpha" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                    <input type="checkbox" id="checkout-permanent" onchange="window.onPermanentToggle()" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500">
+                    <span>
+                        <span class="block text-xs font-bold text-slate-700">Permanent</span>
+                        <span class="block text-[11px] text-slate-500">Stays with this person indefinitely. No return date is needed and the project is set to "Permanent".</span>
+                    </span>
+                </label>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label for="checkout-input-outdate" class="block text-xs font-bold text-slate-600 mb-1">Check Out Date *</label>
@@ -1025,6 +1032,18 @@
                     <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check Out</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- MODAL: PERMANENT vs PROJECT confirmation -->
+    <div id="permanent-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="permanent-confirm-title" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[60] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">
+            <h3 id="permanent-confirm-title" class="font-bold text-slate-900 text-base">Project or permanent assignment?</h3>
+            <p id="permanent-confirm-text" class="text-sm text-slate-600"></p>
+            <div class="flex flex-col gap-2">
+                <button type="button" id="permanent-confirm-project" onclick="window.resolvePermanentChoice('project')" class="w-full px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-100 text-left"></button>
+                <button type="button" id="permanent-confirm-perm" onclick="window.resolvePermanentChoice('permanent')" class="w-full px-4 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white text-left"></button>
+            </div>
         </div>
     </div>
 
@@ -1504,6 +1523,7 @@
             const status = document.getElementById('cloud-sync-status');
             if (status) status.innerText = 'Signed in · Cloud Synced (Real-Time)';
             loadStorageData();
+            window.restoreSiteFilter();
             window.refreshAllViews();
             window.switchTab('dashboard');
             window.initFirestoreListeners();
@@ -2133,6 +2153,21 @@
             });
         }
 
+        // Remember the TX / NH / ALL choice on this computer (browser storage; harmless if unavailable).
+        const SITE_FILTER_KEY = 'equiptrack_inv_site';
+        window.saveSiteFilter = function() {
+            const v = document.getElementById('inv-filter-site')?.value || 'ALL';
+            try { localStorage.setItem(SITE_FILTER_KEY, v); } catch (e) {}
+            window.renderInventoryTable();
+        };
+        window.restoreSiteFilter = function() {
+            const el = document.getElementById('inv-filter-site');
+            if (!el) return;
+            let v = 'ALL';
+            try { v = localStorage.getItem(SITE_FILTER_KEY) || 'ALL'; } catch (e) {}
+            el.value = ['ALL', 'TX', 'NH'].includes(v) ? v : 'ALL';
+        };
+
         window.renderInventoryTable = function() {
             const tbody = document.getElementById('inventory-tbody');
             if (!tbody) return;
@@ -2169,7 +2204,9 @@
                 const daysLate = retDate && retDate < todayMid ? Math.round((todayMid - retDate) / 86400000) : 0;
                 const isOverdue = daysLate > 0;
                 const tr = document.createElement('tr');
-                tr.className = isOverdue ? "bg-rose-100 hover:bg-rose-200 border-l-4 border-rose-500 transition" : "hover:bg-slate-50 transition";
+                tr.className = isOverdue ? "bg-rose-100 hover:bg-rose-200 border-l-4 border-rose-500 transition"
+                    : isPermanent(g) ? "bg-sky-100 hover:bg-sky-200 border-l-4 border-sky-500 transition"
+                    : "hover:bg-slate-50 transition";
                 tr.innerHTML = `
                     <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
                     <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(g.category || 'General Equipment')}</td>
@@ -2183,7 +2220,7 @@
                             : '<div class="text-slate-500 font-mono">No Project</div>'}` : `<span class="text-slate-400 italic">In Shop</span>${g.location ? `<div class="text-slate-600 not-italic font-semibold"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</div>` : ''}`}
                     </td>
                     <td class="px-4 py-3 font-mono text-xs text-slate-700">${g.status === 'Checked Out' ? (escapeHtml(g.checkedOutDate) || '<span class="text-slate-400 italic">Not recorded</span>') : '<span class="text-slate-300">—</span>'}</td>
-                    <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>') : '<span class="text-slate-300">—</span>'}</td>
+                    <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (isPermanent(g) ? PERM_BADGE : (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>')) : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3">
                         ${g.status !== 'Checked Out' ? '<span class="text-slate-300">—</span>' : isOverdue
                             ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">Yes · ${daysLate}d overdue</span>`
@@ -2275,12 +2312,12 @@
                 const due = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
                 const late = due && due < today ? Math.round((today - due) / dayMs) : 0;
                 const daysOut = g.checkedOutDate ? Math.max(1, Math.round((today - new Date(g.checkedOutDate + 'T00:00:00')) / dayMs)) : null;
-                return `<tr class="${late ? 'bg-rose-50' : ''}">
+                return `<tr class="${late ? 'bg-rose-50' : (isPermanent(g) ? 'bg-sky-50' : '')}">
                     <td class="px-3 py-2.5">${gl(g.id)}<div class="text-[11px] text-slate-400">${escapeHtml(g.category) || 'General Equipment'} · ${g.serials ? g.serials.length : 0} serials</div></td>
                     <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</td>
                     <td class="px-3 py-2.5">${mono(g.checkedOutDate)}</td>
                     <td class="px-3 py-2.5 text-center font-mono font-bold">${daysOut ?? '—'}</td>
-                    <td class="px-3 py-2.5">${mono(g.returnDueDate)}</td>
+                    <td class="px-3 py-2.5">${isPermanent(g) ? mono('Permanent') : mono(g.returnDueDate)}</td>
                     <td class="px-3 py-2.5">${late ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">${late}d overdue</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On schedule</span>'}</td>
                     <td class="px-3 py-2.5 text-right" data-priv="checkout"><button type="button" data-group="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.group)" title="Check in ${escapeHtml(g.id)}" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm whitespace-nowrap"><i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> Check In</button></td>
                 </tr>`;
@@ -2580,6 +2617,55 @@
             window.renderDashboard();
         };
 
+        // A group is "permanent" when it is checked out with the project "Permanent" and no return date.
+        function isPermanent(g) {
+            return !!g && g.status === 'Checked Out' && !g.returnDueDate && String(g.projectNumber || '').trim().toLowerCase() === 'permanent';
+        }
+        const PERM_BADGE = '<span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-indigo-100 text-indigo-800">Permanent</span>';
+        let savedProjectBeforePermanent = '';
+
+        function applyPermanentState(on) {
+            const cb = document.getElementById('checkout-permanent');
+            const proj = document.getElementById('checkout-input-project');
+            const ret = document.getElementById('checkout-input-returndate');
+            if (cb) cb.checked = on;
+            if (on) {
+                savedProjectBeforePermanent = proj.value.trim().toLowerCase() === 'permanent' ? '' : proj.value;
+                proj.value = 'Permanent'; proj.readOnly = true; proj.classList.add('bg-slate-100', 'text-slate-500');
+                ret.value = ''; ret.required = false; ret.disabled = true;
+            } else {
+                if (proj.readOnly) proj.value = savedProjectBeforePermanent || '';
+                proj.readOnly = false; proj.classList.remove('bg-slate-100', 'text-slate-500');
+                ret.disabled = false; ret.required = true;
+            }
+            const lbl = document.querySelector('label[for="checkout-input-returndate"]');
+            if (lbl) lbl.textContent = on ? 'Scheduled Return Date (not needed)' : 'Scheduled Return Date *';
+        }
+
+        window.onPermanentToggle = function() {
+            const cb = document.getElementById('checkout-permanent');
+            const proj = document.getElementById('checkout-input-project');
+            if (!cb.checked) { applyPermanentState(false); return; }
+            const typed = proj.value.trim();
+            if (typed && typed.toLowerCase() !== 'permanent') {
+                // A project number is already filled in: ask which one is meant.
+                const sel = document.getElementById('checkout-select-tech');
+                const who = (sel && sel.value) ? sel.value : 'the selected employee';
+                document.getElementById('permanent-confirm-text').textContent = `A project number (${typed}) has already been entered. Should this group be assigned to that project, or permanently assigned to ${who}?`;
+                document.getElementById('permanent-confirm-project').textContent = `Assign to project ${typed}`;
+                document.getElementById('permanent-confirm-perm').textContent = `Permanently assign to ${who}`;
+                cb.checked = false; // stays unchecked until they choose
+                document.getElementById('permanent-confirm-modal').classList.remove('hidden');
+                return;
+            }
+            applyPermanentState(true);
+        };
+
+        window.resolvePermanentChoice = function(choice) {
+            document.getElementById('permanent-confirm-modal').classList.add('hidden');
+            if (choice === 'permanent') applyPermanentState(true); else applyPermanentState(false);
+        };
+
         window.openCheckoutModal = function(preselectGroupId) {
             if (!requirePriv('checkout')) return;
             const selectGroup = document.getElementById('checkout-select-group');
@@ -2609,6 +2695,9 @@
             if (outDateInput) outDateInput.value = localDateStr();
             const retInput = document.getElementById('checkout-input-returndate');
             if (retInput) retInput.value = '';
+            const projInput = document.getElementById('checkout-input-project');
+            if (projInput && projInput.value.trim().toLowerCase() === 'permanent') projInput.value = '';
+            applyPermanentState(false);
             window.syncCheckoutDateMin();
 
             const modal = document.getElementById('checkout-modal');
@@ -2622,6 +2711,7 @@
         };
 
         window.closeCheckoutModal = function() {
+            document.getElementById('permanent-confirm-modal')?.classList.add('hidden');
             const modal = document.getElementById('checkout-modal');
             if (modal) modal.classList.add('hidden');
             const box = document.getElementById('inline-add-tech-box');
@@ -2664,8 +2754,10 @@
             event.preventDefault();
             const groupId = document.getElementById('checkout-select-group')?.value;
             const techName = document.getElementById('checkout-select-tech')?.value;
-            const projNo = document.getElementById('checkout-input-project')?.value.trim();
-            const returnDate = document.getElementById('checkout-input-returndate')?.value;
+            const permanent = !!document.getElementById('checkout-permanent')?.checked;
+            const projNo = permanent ? 'Permanent' : document.getElementById('checkout-input-project')?.value.trim();
+            const returnDate = permanent ? '' : document.getElementById('checkout-input-returndate')?.value;
+            if (!permanent && !returnDate) { alert("Please enter a scheduled return date, or tick Permanent."); return; }
             const outDate = document.getElementById('checkout-input-outdate')?.value || localDateStr();
             if (returnDate && returnDate < outDate) { alert("The scheduled return date cannot be before the check out date."); return; }
 
@@ -2989,7 +3081,7 @@
                     <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
                     <td class="px-4 py-3 font-bold text-slate-800">${escapeHtml(g.assignedUser || 'Unassigned')}</td>
                     <td class="px-4 py-3 font-mono text-slate-600">${escapeHtml(g.projectNumber || 'N/A')}</td>
-                    <td class="px-4 py-3 font-mono">${escapeHtml(g.returnDueDate || 'N/A')}</td>
+                    <td class="px-4 py-3 font-mono">${isPermanent(g) ? 'Permanent' : escapeHtml(g.returnDueDate || 'N/A')}</td>
                     <td class="px-4 py-3 font-mono text-center font-bold">${g.serials ? g.serials.length : 0}</td>
                 `;
                 tbody.appendChild(tr);
@@ -3133,9 +3225,9 @@
                         return {
                             cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment', locHtml(g), techHtml(g),
                                     `<span class="font-mono text-xs">${escapeHtml(g.checkedOutDate) || dash}</span>`, `<span class="font-mono font-bold text-slate-800">${daysOutOf(g) ?? dash}</span>`,
-                                    `<span class="font-mono text-xs">${escapeHtml(g.returnDueDate) || dash}</span>`,
+                                    `<span class="font-mono text-xs">${isPermanent(g) ? 'Permanent' : (escapeHtml(g.returnDueDate) || dash)}</span>`,
                                     late > 0 ? pill(`${late}d overdue`, 'bg-rose-100 text-rose-800') : pill('On schedule', 'bg-emerald-100 text-emerald-800')],
-                            csv: [g.id, g.category || '', loc(g), tech(g), g.checkedOutDate || '', daysOutOf(g) ?? '', g.returnDueDate || '', late > 0 ? `${late}d overdue` : 'On schedule']
+                            csv: [g.id, g.category || '', loc(g), tech(g), g.checkedOutDate || '', daysOutOf(g) ?? '', isPermanent(g) ? 'Permanent' : (g.returnDueDate || ''), late > 0 ? `${late}d overdue` : 'On schedule']
                         };
                     })
                 };
@@ -3328,7 +3420,7 @@
                             <div class="flex justify-between gap-3"><dt class="text-slate-500">Project / Location</dt><dd class="font-mono text-slate-700 text-right">${escapeHtml(g.projectNumber) || 'N/A'}</dd></div>
                             <div class="flex justify-between gap-3"><dt class="text-slate-500">Checked Out</dt><dd class="font-mono text-slate-700">${escapeHtml(g.checkedOutDate) || '—'}</dd></div>
                             <div class="flex justify-between gap-3"><dt class="text-slate-500">Days Out So Far</dt><dd class="font-mono font-bold text-slate-800">${daysOutSoFar ?? '—'}</dd></div>
-                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Scheduled Return</dt><dd class="font-mono ${lateDays > 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}">${escapeHtml(g.returnDueDate) || '—'}</dd></div>
+                            <div class="flex justify-between gap-3"><dt class="text-slate-500">Scheduled Return</dt><dd class="font-mono ${lateDays > 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}">${isPermanent(g) ? 'Permanent' : (escapeHtml(g.returnDueDate) || '—')}</dd></div>
                         </dl>`;
                 } else {
                     checkoutBody = `
