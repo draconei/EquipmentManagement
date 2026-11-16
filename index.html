@@ -17,10 +17,28 @@
 
     <!-- Firebase SDK Modules -->
     <script type="module">
-        import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail, createUserWithEmailAndPassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+        // Load Firebase with dynamic imports so one blocked script cannot silently stop the whole page.
+        // Analytics is optional (privacy extensions often block it); the other three are required.
+        const FB = 'https://www.gstatic.com/firebasejs/11.6.1/';
+        let initializeApp, deleteApp, getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword,
+            sendPasswordResetEmail, createUserWithEmailAndPassword, reauthenticateWithCredential, EmailAuthProvider,
+            getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc;
+        try {
+            const [appM, authM, fsM] = await Promise.all([
+                import(FB + 'firebase-app.js'), import(FB + 'firebase-auth.js'), import(FB + 'firebase-firestore.js')
+            ]);
+            ({ initializeApp, deleteApp } = appM);
+            ({ getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail,
+               createUserWithEmailAndPassword, reauthenticateWithCredential, EmailAuthProvider } = authM);
+            ({ getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc } = fsM);
+        } catch (loadError) {
+            console.error('Firebase scripts could not be loaded', loadError);
+            window.__firebaseLoadFailed = true;
+            const msg = 'The secure sign-in scripts from Google (gstatic.com) could not be loaded. This is usually a company firewall, VPN, or a browser privacy/ad-blocking extension. Try another network or browser, or ask your IT team to allow gstatic.com, googleapis.com and firebaseapp.com.';
+            const show = () => { const el = document.getElementById('auth-loading-text'); if (el) el.textContent = msg; };
+            show(); document.addEventListener('DOMContentLoaded', show);
+            throw loadError;
+        }
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'equiptrack-pro-app';
 
@@ -37,7 +55,7 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
-        try { getAnalytics(app); } catch (e) { console.warn("Analytics not supported in this environment", e); }
+        import(FB + 'firebase-analytics.js').then(m => m.getAnalytics(app)).catch(e => console.warn('Analytics not available', e));
 
         window.db = db;
         window.auth = auth;
@@ -1549,7 +1567,7 @@
 
         // If the sign-in service never answers (offline, blocked), say so instead of spinning forever.
         setTimeout(() => {
-            if (!authStateSeen) {
+            if (!authStateSeen && !window.__firebaseLoadFailed) {
                 const el = document.getElementById('auth-loading-text');
                 if (el) el.textContent = 'Unable to reach the secure sign-in service. Check your internet connection and reload the page.';
             }
