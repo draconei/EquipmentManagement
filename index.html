@@ -2030,7 +2030,7 @@
             const today = new Date();
             today.setHours(0,0,0,0);
             const count = equipmentData.filter(g => {
-                if (!g.calibrationDueDate) return false;
+                if (isLost(g) || !g.calibrationDueDate) return false;
                 const calibDate = new Date(g.calibrationDueDate + 'T00:00:00');
                 return Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) <= 30;
             }).length;
@@ -2048,12 +2048,12 @@
             const available = totalGroups - checkedOut;
 
             const urgentCalib = equipmentData.filter(g => {
-                if (!g.calibrationDueDate) return false;
+                if (isLost(g) || !g.calibrationDueDate) return false;
                 return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
             }).length;
 
             const overdueReturns = equipmentData.filter(g => {
-                if (g.status !== 'Checked Out' || !g.returnDueDate) return false;
+                if (isLost(g) || g.status !== 'Checked Out' || !g.returnDueDate) return false;
                 return new Date(g.returnDueDate + 'T00:00:00') < today;
             }).length;
 
@@ -2068,7 +2068,7 @@
             if (tbody) {
                 tbody.innerHTML = '';
                 equipmentData.slice(0, 5).forEach(g => {
-                    const calibState = getCalibStatus(g.calibrationDueDate);
+                    const calibState = isLost(g) ? NA_STATE : getCalibStatus(g.calibrationDueDate);
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td class="py-2.5 px-2 font-mono font-bold text-xs text-blue-600">${escapeHtml(g.id)}</td>
@@ -2085,7 +2085,7 @@
             if (alertList) {
                 alertList.innerHTML = '';
                 const urgentItems = equipmentData.filter(g => {
-                    if (!g.calibrationDueDate) return false;
+                    if (isLost(g) || !g.calibrationDueDate) return false;
                     return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
                 });
                 if (urgentItems.length === 0) {
@@ -2120,11 +2120,11 @@
                 case 'checkedOut': return out && g.checkedOutDate ? g.checkedOutDate : null;
                 case 'returnBy': return out && g.returnDueDate ? g.returnDueDate : null;
                 case 'overdue': {
-                    if (!out) return null;
+                    if (!out || isLost(g)) return null;
                     const d = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
                     return d && d < todayMid ? Math.round((todayMid - d) / 86400000) : 0;
                 }
-                case 'calib': return g.calibrationDueDate || null;
+                case 'calib': return isLost(g) ? null : (g.calibrationDueDate || null);
                 case 'notes': return (g.notes || '').trim() ? 1 : 0;
             }
             return '';
@@ -2198,13 +2198,15 @@
 
             const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
             filtered.forEach(g => {
-                const calibState = getCalibStatus(g.calibrationDueDate);
-                const calDays = g.calibrationDueDate ? Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - todayMid) / 86400000) : null;
+                const lostG = isLost(g);
+                const calibState = lostG ? NA_STATE : getCalibStatus(g.calibrationDueDate);
+                const calDays = (!lostG && g.calibrationDueDate) ? Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - todayMid) / 86400000) : null;
                 const retDate = g.status === 'Checked Out' && g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
-                const daysLate = retDate && retDate < todayMid ? Math.round((todayMid - retDate) / 86400000) : 0;
+                const daysLate = (!lostG && retDate && retDate < todayMid) ? Math.round((todayMid - retDate) / 86400000) : 0;
                 const isOverdue = daysLate > 0;
                 const tr = document.createElement('tr');
-                tr.className = isOverdue ? "bg-rose-100 hover:bg-rose-200 border-l-4 border-rose-500 transition"
+                tr.className = isLost(g) ? "bg-orange-100 hover:bg-orange-200 border-l-4 border-orange-500 transition"
+                    : isOverdue ? "bg-rose-100 hover:bg-rose-200 border-l-4 border-rose-500 transition"
                     : isPermanent(g) ? "bg-sky-100 hover:bg-sky-200 border-l-4 border-sky-500 transition"
                     : "hover:bg-slate-50 transition";
                 tr.innerHTML = `
@@ -2222,11 +2224,11 @@
                     <td class="px-4 py-3 font-mono text-xs text-slate-700">${g.status === 'Checked Out' ? (escapeHtml(g.checkedOutDate) || '<span class="text-slate-400 italic">Not recorded</span>') : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3 font-mono text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}">${g.status === 'Checked Out' ? (isPermanent(g) ? PERM_BADGE : (escapeHtml(g.returnDueDate) || '<span class="text-slate-400 italic">Not set</span>')) : '<span class="text-slate-300">—</span>'}</td>
                     <td class="px-4 py-3">
-                        ${g.status !== 'Checked Out' ? '<span class="text-slate-300">—</span>' : isOverdue
+                        ${g.status !== 'Checked Out' ? '<span class="text-slate-300">—</span>' : lostG ? '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">N/A</span>' : isOverdue
                             ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">Yes · ${daysLate}d overdue</span>`
                             : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">No</span>'}
                     </td>
-                    <td class="px-4 py-3"><span title="${calDays === null ? 'No calibration date set' : `Calibration due ${escapeHtml(g.calibrationDueDate)}${calDays < 0 ? ` (${Math.abs(calDays)} days overdue)` : ''}`}" class="inline-block min-w-[2.5rem] text-center px-2.5 py-1 text-xs font-bold font-mono rounded-full border ${calibState.class}">${calDays === null ? '—' : calDays}</span></td>
+                    <td class="px-4 py-3"><span title="${lostG ? 'Not applicable: group is lost' : calDays === null ? 'No calibration date set' : `Calibration due ${escapeHtml(g.calibrationDueDate)}${calDays < 0 ? ` (${Math.abs(calDays)} days overdue)` : ''}`}" class="inline-block min-w-[2.5rem] text-center px-2.5 py-1 text-xs font-bold font-mono rounded-full border ${calibState.class}">${lostG ? 'N/A' : calDays === null ? '—' : calDays}</span></td>
                     <td class="px-4 py-3">
                         ${(g.notes || '').trim()
                             ? `<span title="${escapeHtml((g.notes || '').trim().slice(0, 200))}" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-sky-100 text-sky-800 cursor-help">Yes</span>`
@@ -2310,15 +2312,15 @@
 
             const currentRows = current.map(g => {
                 const due = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
-                const late = due && due < today ? Math.round((today - due) / dayMs) : 0;
+                const late = !isLost(g) && due && due < today ? Math.round((today - due) / dayMs) : 0;
                 const daysOut = g.checkedOutDate ? Math.max(1, Math.round((today - new Date(g.checkedOutDate + 'T00:00:00')) / dayMs)) : null;
-                return `<tr class="${late ? 'bg-rose-50' : (isPermanent(g) ? 'bg-sky-50' : '')}">
+                return `<tr class="${isLost(g) ? 'bg-orange-50' : late ? 'bg-rose-50' : (isPermanent(g) ? 'bg-sky-50' : '')}">
                     <td class="px-3 py-2.5">${gl(g.id)}<div class="text-[11px] text-slate-400">${escapeHtml(g.category) || 'General Equipment'} · ${g.serials ? g.serials.length : 0} serials</div></td>
                     <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</td>
                     <td class="px-3 py-2.5">${mono(g.checkedOutDate)}</td>
                     <td class="px-3 py-2.5 text-center font-mono font-bold">${daysOut ?? '—'}</td>
                     <td class="px-3 py-2.5">${isPermanent(g) ? mono('Permanent') : mono(g.returnDueDate)}</td>
-                    <td class="px-3 py-2.5">${late ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">${late}d overdue</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On schedule</span>'}</td>
+                    <td class="px-3 py-2.5">${isLost(g) ? '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">N/A</span>' : late ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">${late}d overdue</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On schedule</span>'}</td>
                     <td class="px-3 py-2.5 text-right" data-priv="checkout"><button type="button" data-group="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.group)" title="Check in ${escapeHtml(g.id)}" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm whitespace-nowrap"><i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> Check In</button></td>
                 </tr>`;
             }).join('');
@@ -2584,17 +2586,18 @@
 
             equipmentData.forEach(g => {
                 const calibDate = g.calibrationDueDate ? new Date(g.calibrationDueDate + 'T00:00:00') : null;
-                const diffDays = calibDate ? Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) : 999;
-                const calibState = getCalibStatus(g.calibrationDueDate);
+                const lostG = isLost(g);
+                const diffDays = (calibDate && !lostG) ? Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) : 999;
+                const calibState = lostG ? NA_STATE : getCalibStatus(g.calibrationDueDate);
 
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50";
                 tr.innerHTML = `
                     <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
                     <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(g.category || 'General Equipment')}</td>
-                    <td class="px-4 py-3 font-mono text-slate-600">${escapeHtml(g.calibrationDueDate || 'N/A')}</td>
+                    <td class="px-4 py-3 font-mono text-slate-600">${lostG ? 'N/A' : escapeHtml(g.calibrationDueDate || 'N/A')}</td>
                     <td class="px-4 py-3 font-medium ${diffDays < 0 ? 'text-rose-600 font-bold' : diffDays <= 30 ? 'text-amber-600 font-bold' : 'text-slate-600'}">
-                        ${calibDate ? (diffDays < 0 ? `${Math.abs(diffDays)} days overdue` : `${diffDays} days left`) : 'N/A'}
+                        ${(calibDate && !lostG) ? (diffDays < 0 ? `${Math.abs(diffDays)} days overdue` : `${diffDays} days left`) : 'N/A'}
                     </td>
                     <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
                     <td class="px-4 py-3 text-right">
@@ -2621,6 +2624,11 @@
         function isPermanent(g) {
             return !!g && g.status === 'Checked Out' && !g.returnDueDate && String(g.projectNumber || '').trim().toLowerCase() === 'permanent';
         }
+        // A group checked out with the project "LOST" is treated as lost equipment (any capitalisation).
+        function isLost(g) {
+            return !!g && g.status === 'Checked Out' && String(g.projectNumber || '').trim().toLowerCase() === 'lost';
+        }
+        const NA_STATE = { text: 'N/A', class: 'bg-orange-100 text-orange-800 border-orange-300' };
         const PERM_BADGE = '<span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-indigo-100 text-indigo-800">Permanent</span>';
         let savedProjectBeforePermanent = '';
 
@@ -3024,7 +3032,7 @@
             tbody.innerHTML = '';
             const today = new Date(); today.setHours(0,0,0,0);
             const urgentItems = equipmentData.filter(g => {
-                if (!g.calibrationDueDate) return false;
+                if (isLost(g) || !g.calibrationDueDate) return false;
                 return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
             });
             if (urgentItems.length === 0) {
@@ -3094,7 +3102,7 @@
             tbody.innerHTML = '';
             const today = new Date(); today.setHours(0,0,0,0);
             const overdueItems = equipmentData.filter(g => {
-                if (g.status !== 'Checked Out' || !g.returnDueDate) return false;
+                if (isLost(g) || g.status !== 'Checked Out' || !g.returnDueDate) return false;
                 return new Date(g.returnDueDate + 'T00:00:00') < today;
             });
 
@@ -3190,8 +3198,8 @@
             const tech = g => g.status === 'Checked Out' ? (g.assignedUser || 'Unassigned') : '';
             const techHtml = g => g.status === 'Checked Out' ? `<span class="font-semibold text-slate-800">${escapeHtml(tech(g))}</span>` : '<span class="text-slate-300">—</span>';
             const daysOutOf = g => g.checkedOutDate ? Math.max(1, daysBetween(today, parse(g.checkedOutDate))) : null;
-            const daysLateOf = g => { const d = parse(g.returnDueDate); return d && d < today ? daysBetween(today, d) : 0; };
-            const calibDiff = g => g.calibrationDueDate ? daysBetween(parse(g.calibrationDueDate), today) : null;
+            const daysLateOf = g => { if (isLost(g)) return 0; const d = parse(g.returnDueDate); return d && d < today ? daysBetween(today, d) : 0; };
+            const calibDiff = g => (isLost(g) || !g.calibrationDueDate) ? null : daysBetween(parse(g.calibrationDueDate), today);
             const out = equipmentData.filter(g => g.status === 'Checked Out');
             const dash = '—';
             const C = (label, cls = '') => ({ label, cls });
@@ -3226,8 +3234,8 @@
                             cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment', locHtml(g), techHtml(g),
                                     `<span class="font-mono text-xs">${escapeHtml(g.checkedOutDate) || dash}</span>`, `<span class="font-mono font-bold text-slate-800">${daysOutOf(g) ?? dash}</span>`,
                                     `<span class="font-mono text-xs">${isPermanent(g) ? 'Permanent' : (escapeHtml(g.returnDueDate) || dash)}</span>`,
-                                    late > 0 ? pill(`${late}d overdue`, 'bg-rose-100 text-rose-800') : pill('On schedule', 'bg-emerald-100 text-emerald-800')],
-                            csv: [g.id, g.category || '', loc(g), tech(g), g.checkedOutDate || '', daysOutOf(g) ?? '', isPermanent(g) ? 'Permanent' : (g.returnDueDate || ''), late > 0 ? `${late}d overdue` : 'On schedule']
+                                    isLost(g) ? pill('N/A', 'bg-orange-100 text-orange-800') : late > 0 ? pill(`${late}d overdue`, 'bg-rose-100 text-rose-800') : pill('On schedule', 'bg-emerald-100 text-emerald-800')],
+                            csv: [g.id, g.category || '', loc(g), tech(g), g.checkedOutDate || '', daysOutOf(g) ?? '', isPermanent(g) ? 'Permanent' : (g.returnDueDate || ''), isLost(g) ? 'N/A' : late > 0 ? `${late}d overdue` : 'On schedule']
                         };
                     })
                 };
@@ -3410,7 +3418,7 @@
                 let checkoutBody;
                 if (checkedOut) {
                     const returnDate = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
-                    const lateDays = returnDate && returnDate < today ? Math.round((today - returnDate) / dayMs) : 0;
+                    const lateDays = !isLost(g) && returnDate && returnDate < today ? Math.round((today - returnDate) / dayMs) : 0;
                     const daysOutSoFar = g.checkedOutDate ? Math.max(1, Math.round((today - new Date(g.checkedOutDate + 'T00:00:00')) / dayMs)) : null;
                     checkoutBody = `
                         <span class="inline-block px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800">Checked Out</span>
