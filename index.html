@@ -436,6 +436,11 @@
                         <option value="Available">Available in Shop</option>
                         <option value="Checked Out">Checked Out</option>
                     </select>
+                    <select id="inv-filter-site" onchange="window.renderInventoryTable()" title="Filter by location (group ID ending)" aria-label="Filter by location" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="ALL">ALL</option>
+                        <option value="TX">TX</option>
+                        <option value="NH">NH</option>
+                    </select>
                 </div>
 
                 <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -2135,6 +2140,7 @@
 
             const searchTerm = (document.getElementById('inv-search-input')?.value || '').toLowerCase();
             const filterStatus = document.getElementById('inv-filter-status')?.value || 'ALL';
+            const filterSite = document.getElementById('inv-filter-site')?.value || 'ALL';
 
             updateInventorySortHeaders();
             const filtered = sortInventoryList(equipmentData.filter(g => {
@@ -2144,7 +2150,10 @@
                     (g.projectNumber && g.projectNumber.toLowerCase().includes(searchTerm)) ||
                     (g.serials && g.serials.some(s => s.serialId.toLowerCase().includes(searchTerm)));
                 const matchStatus = (filterStatus === 'ALL') || (g.status === filterStatus);
-                return matchSearch && matchStatus;
+                // Group IDs ending in NH are NH; everything else (TX or anything unrecognised) counts as TX.
+                const site = /NH\s*$/i.test(String(g.id || '')) ? 'NH' : 'TX';
+                const matchSite = (filterSite === 'ALL') || (site === filterSite);
+                return matchSearch && matchStatus && matchSite;
             }));
 
             if (filtered.length === 0) {
