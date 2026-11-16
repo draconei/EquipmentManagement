@@ -17,13 +17,13 @@
 
     <!-- Firebase SDK Modules -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail, createUserWithEmailAndPassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'equiptrack-pro-app';
-        
+
         const firebaseConfig = {
     apiKey: "AIzaSyCpv60o-_F9re4Er3K519TOXDmaiJdpl8w",
     authDomain: "equipmentmanagement-27033.firebaseapp.com",
@@ -34,54 +34,51 @@
     measurementId: "G-QGFQ2LQKZN"
 };
 
-        let db = null;
-        let auth = null;
-        let analytics = null;
-        let currentUser = null;
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        try { getAnalytics(app); } catch (e) { console.warn("Analytics not supported in this environment", e); }
 
-        if (firebaseConfig) {
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-            try {
-                analytics = getAnalytics(app);
-            } catch (e) {
-                console.warn("Analytics not supported in this environment", e);
-            }
+        window.db = db;
+        window.auth = auth;
+        window.appId = appId;
+        window.firestoreHelpers = { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc };
 
-            window.db = db;
-            window.auth = auth;
-            window.appId = appId;
-            window.firestoreHelpers = { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc };
-
-            const initAuth = async () => {
+        // Everything the page needs from Firebase Auth, in one place.
+        window.authApi = {
+            signIn: (email, password) => signInWithEmailAndPassword(auth, email, password),
+            signOut: () => signOut(auth),
+            resetEmail: (email) => sendPasswordResetEmail(auth, email),
+            // currentPassword is optional: when given, the user is re-verified first (voluntary password change).
+            changePassword: async (newPassword, currentPassword) => {
+                const user = auth.currentUser;
+                if (!user) throw new Error('Not signed in');
+                if (currentPassword) {
+                    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+                }
+                await updatePassword(user, newPassword);
+            },
+            // Creates a login WITHOUT signing the administrator out: uses a throw-away second app instance.
+            createManagedUser: async (email, password) => {
+                const secondary = initializeApp(firebaseConfig, 'user-admin-' + Date.now());
                 try {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (err) {
-                    console.error("Auth error:", err);
+                    const secondaryAuth = getAuth(secondary);
+                    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                    const uid = cred.user.uid;
+                    await signOut(secondaryAuth);
+                    return uid;
+                } finally {
+                    try { await deleteApp(secondary); } catch (e) { /* ignore */ }
                 }
-            };
+            }
+        };
 
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    currentUser = user;
-                    window.currentUser = user;
-                    const statusEl = document.getElementById('cloud-sync-status');
-                    if (statusEl) statusEl.innerText = "Cloud Synced (Real-Time Firestore Active)";
-                    if (typeof window.initFirestoreListeners === 'function') {
-                        window.initFirestoreListeners();
-                    }
-                }
-            });
-
-            initAuth();
-        } else {
-            console.warn("Firebase config not found. Operating in local mode fallback.");
-        }
+        const deliver = (user) => {
+            window.currentUser = user;
+            if (typeof window.handleAuthState === 'function') window.handleAuthState(user);
+            else setTimeout(() => deliver(user), 50);
+        };
+        onAuthStateChanged(auth, deliver);
     </script>
 
     <style>
@@ -91,6 +88,15 @@
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+
+        /* Privilege-based hiding (the real enforcement is in the Firestore security rules) */
+        body[data-lacks~="checkout"] [data-priv~="checkout"],
+        body[data-lacks~="editNotes"] [data-priv~="editNotes"],
+        body[data-lacks~="manageGroups"] [data-priv~="manageGroups"],
+        body[data-lacks~="managePersonnel"] [data-priv~="managePersonnel"],
+        body[data-lacks~="importExport"] [data-priv~="importExport"],
+        body[data-lacks~="manageUsers"] [data-priv~="manageUsers"] { display: none !important; }
 
         /* Robust Production Print & Export Styles */
         @media print {
@@ -104,6 +110,67 @@
     </style>
 </head>
 <body class="h-full text-slate-800 flex flex-col md:flex-row overflow-x-hidden">
+    <!-- AUTH GATE: nothing in the app is shown until a user is signed in -->
+    <div id="auth-overlay" class="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-4 overflow-y-auto">
+        <div class="w-full max-w-sm my-auto">
+            <div class="flex items-center justify-center space-x-3 mb-6">
+                <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48c3ZnIGlkPSJMYXllcl8yIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMTguNCAxNjYuOSI+PGRlZnM+PHN0eWxlPi5jbHMtMXtmaWxsOiMwMGFlZWY7fTwvc3R5bGU+PC9kZWZzPjxnIGlkPSJMYXllcl8xLTIiPjxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTI4MS4wNiw1Ny43Yy04LjcyLDAtMTUuNTksMy4xNS0yMC45Nyw4LjQzdi0zMC43aC0yNC4yMXYxMDEuODRoMjQuMjF2LTUuODZjNS4zOCw1LjI4LDEyLjI1LDguNDMsMjAuOTcsOC40MywyMC44MiwwLDM3LjM0LTE3LjkyLDM3LjM0LTQxLjA3cy0xNi41MS00MS4wNy0zNy4zNC00MS4wN1pNMjc2LjUxLDExNi43M2MtOS4zOSwwLTE3LjA1LTguMDQtMTcuMDUtMTcuOTdzNy42NS0xNy45NywxNy4wNS0xNy45NywxNy4wOSw4LjA0LDE3LjA5LDE3Ljk3LTcuNjUsMTcuOTctMTcuMDksMTcuOTdaIi8+PHBhdGggY2xhc3M9ImNscy0xIiBkPSJNMjAzLjYzLDY2LjEyYy01LjM4LTUuMjgtMTIuMjUtOC40My0yMC45Ny04LjQzLTIwLjgyLDAtMzcuMzQsMTcuOTItMzcuMzQsNDEuMDdzMTYuNTEsNDEuMDcsMzcuMzQsNDEuMDdjOC43MiwwLDE1LjU5LTMuMTUsMjAuOTctOC40M3Y1Ljg2aDI0LjIxVjYwLjI2aC0yNC4yMXY1Ljg2Wk0xODcuMjEsMTE2LjczYy05LjQ0LDAtMTcuMDktOC4wNC0xNy4wOS0xNy45N3M3LjY1LTE3Ljk3LDE3LjA5LTE3Ljk3LDE3LjA1LDguMDQsMTcuMDUsMTcuOTctNy42NSwxNy45Ny0xNy4wNSwxNy45N1oiLz48cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik00MC4wNSwxMzkuNjhjMTkuODEsMCwzMi4wNi0xMS41NywzOC4wMS0yNy4yNmgtMjUuMjNjLTIuNDcsMy41NC02LjEsNi4yLTEyLjIsNi4yLTcuOCwwLTEzLjgtNC40MS0xNS43NC0xMS4xNGwtLjE5LS42OGg1NC4zM2MuNDQtMi4xOC42OC00LjcuNjgtNy41MSwwLTIzLjUzLTE2LjYxLTQxLjYtMzkuMDMtNDEuNlMwLDc2LjI0LDAsOTguODZzMTcuODIsNDAuODIsNDAuMDUsNDAuODJaTTQwLDc4LjkxYzcuODksMCwxMi42NCw0LjI2LDE0Ljk2LDExLjIzaC0yOS45OGMyLjMyLTYuOTcsNy4wNy0xMS4yMywxNS4wMS0xMS4yM1oiLz48cG9seWdvbiBjbGFzcz0iY2xzLTEiIHBvaW50cz0iMTQwLjczIDEzMC44OSAxNDAuNzMgMCAxMTYuNTEgMTUuNDMgMTE2LjUxIDE0Ni4zMiAxNDAuNzMgMTMwLjg5Ii8+PHBvbHlnb24gY2xhc3M9ImNscy0xIiBwb2ludHM9IjEwOC40NyAxNTEuNDQgMTA4LjQ3IDIwLjU1IDg0LjIxIDM2IDg0LjIxIDE2Ni45IDEwOC40NyAxNTEuNDQiLz48L2c+PC9zdmc+" alt="Ellab logo" class="h-10 w-auto shrink-0">
+                <div>
+                    <div class="font-bold text-white text-lg tracking-wide leading-none">EquipTrack</div>
+                    <div class="text-[11px] text-blue-400 font-semibold uppercase tracking-wider">Enterprise Pro</div>
+                </div>
+            </div>
+
+            <div id="auth-panel-loading" class="bg-white rounded-2xl shadow-xl p-6 text-center text-sm text-slate-500">
+                <i class="fa-solid fa-spinner fa-spin mr-2"></i><span id="auth-loading-text">Connecting to the secure sign-in service...</span>
+            </div>
+
+            <form id="auth-panel-login" onsubmit="window.submitLogin(event)" class="hidden bg-white rounded-2xl shadow-xl p-6 space-y-4">
+                <h2 class="text-base font-bold text-slate-900">Sign in</h2>
+                <div>
+                    <label for="login-email" class="block text-xs font-bold text-slate-600 mb-1">Email</label>
+                    <input type="email" id="login-email" autocomplete="username" required class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                </div>
+                <div>
+                    <label for="login-password" class="block text-xs font-bold text-slate-600 mb-1">Password</label>
+                    <div class="relative">
+                        <input type="password" id="login-password" autocomplete="current-password" required class="w-full pl-3 pr-16 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                        <button type="button" onclick="window.togglePw('login-password', this)" class="absolute right-2 top-2 px-2 py-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800">Show</button>
+                    </div>
+                </div>
+                <p id="login-error" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                <p id="login-info" role="status" class="hidden text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2"></p>
+                <button type="submit" id="login-submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-sm font-semibold shadow-sm transition">Sign In</button>
+                <button type="button" onclick="window.forgotPassword()" class="w-full text-xs font-semibold text-blue-600 hover:text-blue-700">Forgot password?</button>
+            </form>
+
+            <form id="auth-panel-change" onsubmit="window.submitForcedPasswordChange(event)" class="hidden bg-white rounded-2xl shadow-xl p-6 space-y-4">
+                <div>
+                    <h2 class="text-base font-bold text-slate-900">Choose a new password</h2>
+                    <p class="text-xs text-slate-500 mt-1">You signed in with a temporary password. Set your own password to continue.</p>
+                </div>
+                <div>
+                    <label for="force-new-password" class="block text-xs font-bold text-slate-600 mb-1">New password</label>
+                    <input type="password" id="force-new-password" autocomplete="new-password" required class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                </div>
+                <div>
+                    <label for="force-confirm-password" class="block text-xs font-bold text-slate-600 mb-1">Confirm new password</label>
+                    <input type="password" id="force-confirm-password" autocomplete="new-password" required class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                </div>
+                <p class="text-[11px] text-slate-500">At least 10 characters, with letters and at least one number or symbol. It must differ from your temporary password.</p>
+                <p id="force-error" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                <button type="submit" id="force-submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-sm font-semibold shadow-sm transition">Save Password &amp; Continue</button>
+                <button type="button" onclick="window.signOutUser()" class="w-full text-xs font-semibold text-slate-500 hover:text-slate-700">Sign out</button>
+            </form>
+
+            <div id="auth-panel-denied" class="hidden bg-white rounded-2xl shadow-xl p-6 space-y-4">
+                <h2 class="text-base font-bold text-slate-900">Access not available</h2>
+                <p id="denied-message" class="text-sm text-slate-600"></p>
+                <button type="button" onclick="window.signOutUser()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-semibold transition">Sign Out</button>
+            </div>
+        </div>
+    </div>
+
 
     <!-- DESKTOP SIDEBAR NAVIGATION -->
     <aside class="w-64 bg-slate-900 text-slate-300 flex-col shrink-0 hidden md:flex border-r border-slate-800">
@@ -137,13 +204,17 @@
                 <i class="fa-solid fa-layer-group text-lg w-6 text-center"></i>
                 <span>Inventory</span>
             </button>
-            <button onclick="window.switchTab('create-group')" id="nav-create-group" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+            <button onclick="window.switchTab('create-group')" id="nav-create-group" data-priv="manageGroups" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
                 <i class="fa-solid fa-folder-plus text-lg w-6 text-center text-emerald-400"></i>
                 <span>Group Management</span>
             </button>
             <button onclick="window.switchTab('team')" id="nav-team" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
                 <i class="fa-solid fa-users text-lg w-6 text-center text-sky-400"></i>
                 <span>Personnel Management</span>
+            </button>
+            <button onclick="window.switchTab('users')" id="nav-users" data-priv="manageUsers" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                <i class="fa-solid fa-user-shield text-lg w-6 text-center"></i>
+                <span>User Accounts</span>
             </button>
             <button onclick="window.switchTab('calibration')" id="nav-calibration" class="nav-btn w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition relative">
                 <i class="fa-solid fa-triangle-exclamation text-lg w-6 text-center text-amber-400"></i>
@@ -161,11 +232,20 @@
         </nav>
 
         <div class="p-4 border-t border-slate-800 space-y-2">
-            <button onclick="window.exportDatabase()" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition">
+            <div id="user-chip" class="rounded-xl bg-slate-800/60 px-3 py-2.5 text-xs">
+                <div class="font-semibold text-slate-100 truncate" id="user-chip-name">Signed in</div>
+                <div class="text-slate-500 truncate" id="user-chip-email"></div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-blue-400 mt-1" id="user-chip-role"></div>
+                <div class="flex gap-2 mt-2">
+                    <button type="button" onclick="window.openChangePasswordModal()" class="flex-1 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-[11px] font-semibold transition">Change password</button>
+                    <button type="button" onclick="window.signOutUser()" class="flex-1 py-1.5 bg-slate-700 hover:bg-rose-600 text-slate-200 hover:text-white rounded-lg text-[11px] font-semibold transition">Sign out</button>
+                </div>
+            </div>
+            <button onclick="window.exportDatabase()" data-priv="importExport" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition">
                 <i class="fa-solid fa-download"></i>
                 <span>Export JSON Backup</span>
             </button>
-            <label class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 cursor-pointer transition">
+            <label data-priv="importExport" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 cursor-pointer transition">
                 <i class="fa-solid fa-upload"></i>
                 <span>Import Database</span>
                 <input type="file" id="import-json-file" class="hidden" accept=".json" onchange="window.importDatabase(event)">
@@ -198,10 +278,11 @@
                     <i class="fa-solid fa-qrcode"></i>
                     <span class="hidden sm:inline">Quick Scan</span>
                 </button>
-                <button onclick="window.openCheckoutModal(null)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
+                <button onclick="window.openCheckoutModal(null)" data-priv="checkout" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
                     <i class="fa-solid fa-arrow-right-from-bracket"></i>
                     <span>Check Out</span>
                 </button>
+                <button type="button" onclick="window.signOutUser()" title="Sign out" aria-label="Sign out" class="md:hidden bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 px-3 py-2 rounded-xl text-xs transition"><i class="fa-solid fa-right-from-bracket"></i></button>
             </div>
         </header>
 
@@ -310,7 +391,7 @@
                         <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Equipment Inventory</h2>
                         <p class="text-sm text-slate-500">Manage equipment groups, assign serial numbers, check in/out, and print labels.</p>
                     </div>
-                    <button onclick="window.prepareCreateGroupForm()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition">
+                    <button onclick="window.prepareCreateGroupForm()" data-priv="manageGroups" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition">
                         <i class="fa-solid fa-plus"></i>
                         <span>Create New Group</span>
                     </button>
@@ -486,7 +567,7 @@
                         <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Personnel Management</h2>
                         <p class="text-sm text-slate-500">Manage technicians and staff authorized for equipment checkout.</p>
                     </div>
-                    <button onclick="window.openAddTeamModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition">
+                    <button onclick="window.openAddTeamModal()" data-priv="managePersonnel" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 shadow-sm transition">
                         <i class="fa-solid fa-user-plus"></i>
                         <span>Add Personnel</span>
                     </button>
@@ -506,6 +587,80 @@
                                 </tr>
                             </thead>
                             <tbody id="team-tbody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: USER ACCOUNTS (administrators) -->
+            <section id="view-users" class="space-y-6 hidden">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900 tracking-tight">User Accounts</h2>
+                    <p class="text-sm text-slate-500">Create logins with a temporary password and choose what each person is allowed to do. New users must set their own password the first time they sign in.</p>
+                </div>
+
+                <form onsubmit="window.createUserAccount(event)" autocomplete="off" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                    <h3 class="font-bold text-slate-900 text-sm">Create New User</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label for="new-user-name" class="block text-xs font-bold text-slate-600 mb-1">Full name *</label>
+                            <input type="text" id="new-user-name" required maxlength="80" autocomplete="off" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                        </div>
+                        <div>
+                            <label for="new-user-email" class="block text-xs font-bold text-slate-600 mb-1">Email (their login) *</label>
+                            <input type="email" id="new-user-email" required autocomplete="off" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                        </div>
+                        <div>
+                            <label for="new-user-password" class="block text-xs font-bold text-slate-600 mb-1">Temporary password *</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="new-user-password" required minlength="10" autocomplete="new-password" spellcheck="false" class="min-w-0 flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none">
+                                <button type="button" onclick="window.generateTempPassword()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold whitespace-nowrap">Generate</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-slate-600">Privileges <span class="font-normal text-slate-400">(everyone can view all data)</span></span>
+                            <span class="space-x-1">
+                                <button type="button" onclick="window.applyPrivPreset('create-user-privs','admin')" class="text-[11px] font-semibold text-blue-600 hover:underline">All</button>
+                                <span class="text-slate-300">·</span>
+                                <button type="button" onclick="window.applyPrivPreset('create-user-privs','technician')" class="text-[11px] font-semibold text-blue-600 hover:underline">Technician</button>
+                                <span class="text-slate-300">·</span>
+                                <button type="button" onclick="window.applyPrivPreset('create-user-privs','viewer')" class="text-[11px] font-semibold text-blue-600 hover:underline">View only</button>
+                            </span>
+                        </div>
+                        <div id="create-user-privs" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>
+                    </div>
+                    <p id="create-user-error" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                    <div class="flex justify-end">
+                        <button type="submit" id="create-user-submit" class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-2.5 rounded-xl text-xs font-semibold shadow-sm"><i class="fa-solid fa-user-plus mr-1.5"></i> Create User</button>
+                    </div>
+                </form>
+
+                <div id="create-user-result" class="hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-5 space-y-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h3 class="font-bold text-emerald-900 text-sm" id="create-user-result-title"></h3>
+                            <p class="text-xs text-emerald-800 mt-0.5">Give these sign-in details to the user. This password is shown only now and is not stored anywhere. They will be asked to choose their own at first sign-in.</p>
+                        </div>
+                        <button type="button" onclick="window.dismissCreateResult()" aria-label="Dismiss" class="text-emerald-700 hover:text-emerald-900"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <pre id="create-user-result-text" class="bg-white border border-emerald-200 rounded-xl p-3 text-xs font-mono text-slate-800 whitespace-pre-wrap break-all"></pre>
+                    <button type="button" onclick="window.copyCreateResult()" id="create-user-copy" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold"><i class="fa-solid fa-copy mr-1.5"></i> Copy details</button>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">User</th>
+                                    <th class="px-4 py-3">Privileges</th>
+                                    <th class="px-4 py-3">Status</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-tbody" class="divide-y divide-slate-100"></tbody>
                         </table>
                     </div>
                 </div>
@@ -817,11 +972,11 @@
                 <div>
                     <div class="flex justify-between items-center mb-1">
                         <label class="block text-xs font-bold text-slate-600">Assign To Technician *</label>
-                        <button type="button" onclick="window.toggleInlineAddTech()" class="text-[11px] font-semibold text-blue-600 hover:text-blue-700">+ Quick Add Tech</button>
+                        <button type="button" onclick="window.toggleInlineAddTech()" data-priv="managePersonnel" class="text-[11px] font-semibold text-blue-600 hover:text-blue-700">+ Quick Add Tech</button>
                     </div>
                     <select id="checkout-select-tech" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500 outline-none"></select>
                 </div>
-                <div id="inline-add-tech-box" class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 hidden">
+                <div id="inline-add-tech-box" data-priv="managePersonnel" class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 hidden">
                     <span class="text-xs font-bold text-slate-700">Add New Technician to Roster:</span>
                     <div class="grid grid-cols-2 gap-2">
                         <input type="text" id="inline-tech-name" placeholder="Full Name *" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none">
@@ -846,6 +1001,76 @@
                 <div class="flex items-center justify-end space-x-2 pt-2">
                     <button type="button" onclick="window.closeCheckoutModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
                     <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check Out</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: CHANGE PASSWORD (voluntary) -->
+    <div id="pwd-modal" role="dialog" aria-modal="true" aria-labelledby="pwd-modal-title" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden">
+            <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+                <h3 id="pwd-modal-title" class="font-bold text-slate-900 text-base">Change Password</h3>
+                <button type="button" onclick="window.closeChangePasswordModal()" aria-label="Close" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form onsubmit="window.submitChangePassword(event)" class="px-6 py-5 space-y-4">
+                <div>
+                    <label for="pwd-current" class="block text-xs font-bold text-slate-600 mb-1">Current password</label>
+                    <input type="password" id="pwd-current" autocomplete="current-password" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label for="pwd-new" class="block text-xs font-bold text-slate-600 mb-1">New password</label>
+                    <input type="password" id="pwd-new" autocomplete="new-password" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label for="pwd-confirm" class="block text-xs font-bold text-slate-600 mb-1">Confirm new password</label>
+                    <input type="password" id="pwd-confirm" autocomplete="new-password" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <p class="text-[11px] text-slate-500">At least 10 characters, with letters and at least one number or symbol.</p>
+                <p id="pwd-error" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                <p id="pwd-success" role="status" class="hidden text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2"></p>
+                <div class="flex justify-end space-x-2 pt-1">
+                    <button type="button" onclick="window.closeChangePasswordModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+                    <button type="submit" id="pwd-submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-semibold shadow-sm">Update Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: EDIT USER -->
+    <div id="user-edit-modal" role="dialog" aria-modal="true" aria-labelledby="user-edit-title" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-lg max-h-[90vh] rounded-2xl shadow-xl overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
+                <h3 id="user-edit-title" class="font-bold text-slate-900 text-base">Edit User</h3>
+                <button type="button" onclick="window.closeUserEditModal()" aria-label="Close" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form onsubmit="window.saveUserEdits(event)" class="px-6 py-5 space-y-4 overflow-y-auto">
+                <input type="hidden" id="user-edit-uid" value="">
+                <div>
+                    <label for="user-edit-name" class="block text-xs font-bold text-slate-600 mb-1">Full name *</label>
+                    <input type="text" id="user-edit-name" required maxlength="80" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <span class="block text-xs font-bold text-slate-600 mb-1">Email (login)</span>
+                    <div id="user-edit-email" class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 font-mono break-all"></div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-slate-600">Privileges</span>
+                        <span class="space-x-1">
+                            <button type="button" onclick="window.applyPrivPreset('user-edit-privs','admin')" class="text-[11px] font-semibold text-blue-600 hover:underline">All</button>
+                            <span class="text-slate-300">·</span>
+                            <button type="button" onclick="window.applyPrivPreset('user-edit-privs','technician')" class="text-[11px] font-semibold text-blue-600 hover:underline">Technician</button>
+                            <span class="text-slate-300">·</span>
+                            <button type="button" onclick="window.applyPrivPreset('user-edit-privs','viewer')" class="text-[11px] font-semibold text-blue-600 hover:underline">View only</button>
+                        </span>
+                    </div>
+                    <div id="user-edit-privs" class="space-y-2"></div>
+                </div>
+                <p id="user-edit-error" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"></p>
+                <div class="flex justify-end space-x-2 pt-1">
+                    <button type="button" onclick="window.closeUserEditModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm">Save Changes</button>
                 </div>
             </form>
         </div>
@@ -901,7 +1126,7 @@
                 </div>
                 <div class="flex items-center justify-end space-x-2 pt-2">
                     <button type="button" onclick="window.closeNotesModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
-                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm">Save Notes</button>
+                    <button type="submit" data-priv="editNotes" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm">Save Notes</button>
                 </div>
             </form>
         </div>
@@ -1059,51 +1284,555 @@
             { id: "TECH-3", name: "David Miller", role: "Rig Manager", dept: "Offshore Lifting" }
         ];
 
+        // =====================================================================
+        // AUTHENTICATION, SESSION & PRIVILEGES
+        // The page hides what a user cannot use, but the real enforcement is the
+        // Firestore security rules (see firestore.rules): they check the same
+        // privileges on every read and write.
+        // =====================================================================
+        const PRIVILEGES = [
+            { key: 'checkout',        label: 'Check equipment out & in', help: 'Check groups out to technicians and back in.' },
+            { key: 'editNotes',       label: 'Edit group notes',         help: 'Add or change the notes on an equipment group.' },
+            { key: 'manageGroups',    label: 'Manage equipment groups',  help: 'Create, edit and recalibrate groups and their serial numbers.' },
+            { key: 'managePersonnel', label: 'Manage personnel',         help: 'Add, edit and remove people on the technician roster.' },
+            { key: 'importExport',    label: 'Import / export backups',  help: 'Download database backups and import them back in.' },
+            { key: 'manageUsers',     label: 'Manage user accounts',     help: 'Create logins and change anyone’s privileges. Grant with care.' }
+        ];
+        const PRIV_SHORT = { checkout: 'Check out/in', editNotes: 'Notes', manageGroups: 'Groups', managePersonnel: 'Personnel', importExport: 'Import/Export', manageUsers: 'Users' };
+        const PRIV_PRESETS = { admin: PRIVILEGES.map(p => p.key), technician: ['checkout', 'editNotes'], viewer: [] };
+        const MIN_PASSWORD_LENGTH = 10;
+
+        let currentProfile = null;
+        let currentUid = null;
+        let sessionActive = false;
+        let tempPasswordUsed = '';
+        let profileUnsub = null;
+        let usersUnsub = null;
+        let usersData = [];
+        let authStateSeen = false;
+
+        window.can = function(priv) {
+            return !!(currentProfile && currentProfile.disabled !== true && currentProfile.permissions && currentProfile.permissions[priv] === true);
+        };
+
+        function requirePriv(priv) {
+            if (window.can(priv)) return true;
+            alert('Your account does not have permission to do that. Ask an administrator if you need access.');
+            return false;
+        }
+
+        function profileRef(uid) {
+            return window.firestoreHelpers.doc(window.db, 'artifacts', window.appId, 'users', uid);
+        }
+
+        // ---------- auth overlay ----------
+        function showAuthPanel(name) {
+            document.getElementById('auth-overlay')?.classList.remove('hidden');
+            ['loading', 'login', 'change', 'denied'].forEach(p => {
+                document.getElementById(`auth-panel-${p}`)?.classList.toggle('hidden', p !== name);
+            });
+            const focusId = { login: 'login-email', change: 'force-new-password' }[name];
+            if (focusId) setTimeout(() => document.getElementById(focusId)?.focus(), 50);
+        }
+
+        function hideAuthOverlay() { document.getElementById('auth-overlay')?.classList.add('hidden'); }
+
+        function setMessage(id, text) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text || '';
+            el.classList.toggle('hidden', !text);
+        }
+
+        function authErrorText(err) {
+            switch (err && err.code) {
+                case 'auth/invalid-credential':
+                case 'auth/wrong-password':
+                case 'auth/user-not-found':
+                case 'auth/invalid-email': return 'Incorrect email or password.';
+                case 'auth/user-disabled': return 'This account has been disabled. Contact an administrator.';
+                case 'auth/too-many-requests': return 'Too many attempts. Wait a few minutes and try again, or use "Forgot password?".';
+                case 'auth/network-request-failed': return 'Could not reach the sign-in service. Check your internet connection.';
+                case 'auth/weak-password': return 'That password is too weak. Choose a longer, less guessable one.';
+                case 'auth/requires-recent-login': return 'For security, sign out, sign in again, and then retry.';
+                case 'auth/email-already-in-use': return 'A login already exists for that email address.';
+                default: return 'Something went wrong. Please try again.';
+            }
+        }
+
+        window.togglePw = function(inputId, btn) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            if (btn) btn.textContent = show ? 'Hide' : 'Show';
+        };
+
+        function passwordProblem(pw, email, avoid) {
+            if (pw.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+            if (!/[A-Za-z]/.test(pw) || !/[^A-Za-z]/.test(pw)) return 'Use a mix of letters and at least one number or symbol.';
+            const local = String(email || '').split('@')[0].toLowerCase();
+            if (local.length >= 4 && pw.toLowerCase().includes(local)) return 'The password should not contain the name from your email address.';
+            if (avoid && pw === avoid) return 'The new password must be different from the current one.';
+            return '';
+        }
+
+        window.submitLogin = async function(event) {
+            event.preventDefault();
+            try { sessionStorage.removeItem('equiptrack_notice'); } catch (e) {}
+            const email = document.getElementById('login-email').value.trim().toLowerCase();
+            const password = document.getElementById('login-password').value;
+            const btn = document.getElementById('login-submit');
+            setMessage('login-error', ''); setMessage('login-info', '');
+            btn.disabled = true; btn.textContent = 'Signing in...';
+            try {
+                tempPasswordUsed = password;
+                await window.authApi.signIn(email, password);
+                document.getElementById('login-password').value = '';
+            } catch (err) {
+                tempPasswordUsed = '';
+                setMessage('login-error', authErrorText(err));
+            } finally {
+                btn.disabled = false; btn.textContent = 'Sign In';
+            }
+        };
+
+        window.forgotPassword = async function() {
+            const email = document.getElementById('login-email').value.trim().toLowerCase();
+            setMessage('login-error', ''); setMessage('login-info', '');
+            if (!email) { setMessage('login-error', 'Enter your email address above first.'); return; }
+            try { await window.authApi.resetEmail(email); } catch (err) {
+                if (err && err.code === 'auth/network-request-failed') { setMessage('login-error', authErrorText(err)); return; }
+            }
+            // Same answer whether or not the account exists, so this can't be used to discover who has a login.
+            setMessage('login-info', 'If that email has an account, a password reset link is on its way.');
+        };
+
+        function denyAccess(message) {
+            document.getElementById('denied-message').textContent = message;
+            showAuthPanel('denied');
+        }
+
+        // ---------- auth state ----------
+        window.handleAuthState = async function(user) {
+            authStateSeen = true;
+            if (!user) {
+                teardownSession();
+                showAuthPanel('login');
+                const notice = sessionStorage.getItem('equiptrack_notice');
+                if (notice) setMessage('login-info', notice);
+                return;
+            }
+            if (sessionActive && currentUid === user.uid) return;
+            document.getElementById('auth-loading-text').textContent = 'Checking your account...';
+            showAuthPanel('loading');
+            let snap;
+            try {
+                snap = await window.firestoreHelpers.getDoc(profileRef(user.uid));
+            } catch (err) {
+                denyAccess('Your account could not be checked right now. Check your connection and try again.');
+                return;
+            }
+            if (!snap.exists()) { denyAccess('This login has not been set up for EquipTrack yet. Ask an administrator to create your account.'); return; }
+            const profile = snap.data();
+            if (profile.disabled === true) { denyAccess('This account has been disabled. Contact an administrator.'); return; }
+            currentProfile = profile;
+            currentUid = user.uid;
+            if (profile.mustChangePassword === true) { showAuthPanel('change'); return; }
+            startSession(user, profile);
+        };
+
+        window.submitForcedPasswordChange = async function(event) {
+            event.preventDefault();
+            const user = window.currentUser;
+            const next = document.getElementById('force-new-password').value;
+            const confirmPw = document.getElementById('force-confirm-password').value;
+            const btn = document.getElementById('force-submit');
+            setMessage('force-error', '');
+            if (!user) return;
+            const problem = passwordProblem(next, user.email, tempPasswordUsed) || (next !== confirmPw ? 'The two passwords do not match.' : '');
+            if (problem) { setMessage('force-error', problem); return; }
+            btn.disabled = true; btn.textContent = 'Saving...';
+            try {
+                await window.authApi.changePassword(next);
+            } catch (err) {
+                setMessage('force-error', authErrorText(err));
+                btn.disabled = false; btn.textContent = 'Save Password & Continue';
+                return;
+            }
+            try {
+                await window.firestoreHelpers.updateDoc(profileRef(user.uid), { mustChangePassword: false });
+            } catch (err) {
+                setMessage('force-error', 'Your password was changed, but setup could not be completed. Sign out, then sign in again with your NEW password.');
+                btn.disabled = false; btn.textContent = 'Save Password & Continue';
+                return;
+            }
+            tempPasswordUsed = '';
+            document.getElementById('force-new-password').value = '';
+            document.getElementById('force-confirm-password').value = '';
+            btn.disabled = false; btn.textContent = 'Save Password & Continue';
+            currentProfile = { ...currentProfile, mustChangePassword: false };
+            startSession(user, currentProfile);
+        };
+
+        // ---------- session ----------
+        function startSession(user, profile) {
+            try { sessionStorage.removeItem('equiptrack_notice'); } catch (e) {}
+            sessionActive = true;
+            currentProfile = profile;
+            currentUid = user.uid;
+            hideAuthOverlay();
+            applyPrivileges();
+            const status = document.getElementById('cloud-sync-status');
+            if (status) status.innerText = 'Signed in · Cloud Synced (Real-Time)';
+            loadStorageData();
+            window.refreshAllViews();
+            window.switchTab('dashboard');
+            window.initFirestoreListeners();
+
+            const { onSnapshot } = window.firestoreHelpers;
+            if (profileUnsub) profileUnsub();
+            profileUnsub = onSnapshot(profileRef(user.uid), (snap) => {
+                if (!snap.exists() || snap.data().disabled === true) { forceSignOut('Your access has been removed. Contact an administrator.'); return; }
+                currentProfile = snap.data();
+                applyPrivileges();
+                if (window.can('manageUsers') && !usersUnsub) startUsersListener();
+                const usersView = document.getElementById('view-users');
+                if (!window.can('manageUsers') && usersView && !usersView.classList.contains('hidden')) window.switchTab('dashboard');
+            }, (err) => console.warn('Profile listener error', err));
+            if (window.can('manageUsers')) startUsersListener();
+        }
+
+        function roleLabel(profile) {
+            const perms = (profile && profile.permissions) || {};
+            const count = PRIVILEGES.filter(p => perms[p.key] === true).length;
+            if (count === PRIVILEGES.length) return 'Administrator';
+            if (count === 0) return 'View only';
+            return 'Custom access';
+        }
+
+        function applyPrivileges() {
+            const lacks = PRIVILEGES.filter(p => !window.can(p.key)).map(p => p.key).join(' ');
+            document.body.setAttribute('data-lacks', lacks);
+            const user = window.currentUser;
+            const nameEl = document.getElementById('user-chip-name');
+            if (nameEl) nameEl.textContent = (currentProfile && currentProfile.displayName) || (user && user.email) || 'Signed in';
+            const emailEl = document.getElementById('user-chip-email');
+            if (emailEl) emailEl.textContent = (user && user.email) || '';
+            const roleEl = document.getElementById('user-chip-role');
+            if (roleEl) roleEl.textContent = roleLabel(currentProfile);
+        }
+
+        function clearLocalCache() {
+            try { ['equiptrack_groups', 'equiptrack_team', 'equiptrack_archive'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+        }
+
+        function teardownSession() {
+            [profileUnsub, usersUnsub, ...dataUnsubs].forEach(u => { try { if (u) u(); } catch (e) {} });
+            profileUnsub = null; usersUnsub = null; dataUnsubs = [];
+            sessionActive = false; currentProfile = null; currentUid = null; usersData = [];
+            equipmentData = []; teamRosterData = []; archiveData = [];
+            clearLocalCache();
+            applyPrivileges();
+        }
+
+        function forceSignOut(message) {
+            try { sessionStorage.setItem('equiptrack_notice', message); } catch (e) {}
+            window.signOutUser();
+        }
+
+        window.signOutUser = async function() {
+            clearLocalCache();
+            try { await window.authApi.signOut(); } catch (e) {}
+            location.reload();
+        };
+
+        // If the sign-in service never answers (offline, blocked), say so instead of spinning forever.
+        setTimeout(() => {
+            if (!authStateSeen) {
+                const el = document.getElementById('auth-loading-text');
+                if (el) el.textContent = 'Unable to reach the secure sign-in service. Check your internet connection and reload the page.';
+            }
+        }, 12000);
+
+        // ---------- voluntary password change ----------
+        window.openChangePasswordModal = function() {
+            ['pwd-current', 'pwd-new', 'pwd-confirm'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            setMessage('pwd-error', ''); setMessage('pwd-success', '');
+            document.getElementById('pwd-modal')?.classList.remove('hidden');
+            setTimeout(() => document.getElementById('pwd-current')?.focus(), 50);
+        };
+        window.closeChangePasswordModal = function() { document.getElementById('pwd-modal')?.classList.add('hidden'); };
+
+        window.submitChangePassword = async function(event) {
+            event.preventDefault();
+            const user = window.currentUser;
+            const current = document.getElementById('pwd-current').value;
+            const next = document.getElementById('pwd-new').value;
+            const confirmPw = document.getElementById('pwd-confirm').value;
+            setMessage('pwd-error', ''); setMessage('pwd-success', '');
+            if (!user) return;
+            const problem = passwordProblem(next, user.email, current) || (next !== confirmPw ? 'The two new passwords do not match.' : '');
+            if (problem) { setMessage('pwd-error', problem); return; }
+            const btn = document.getElementById('pwd-submit');
+            btn.disabled = true;
+            try {
+                await window.authApi.changePassword(next, current);
+                setMessage('pwd-success', 'Password updated.');
+                ['pwd-current', 'pwd-new', 'pwd-confirm'].forEach(id => { document.getElementById(id).value = ''; });
+                setTimeout(window.closeChangePasswordModal, 1200);
+            } catch (err) {
+                const wrong = err && (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password');
+                setMessage('pwd-error', wrong ? 'Your current password is incorrect.' : authErrorText(err));
+            } finally { btn.disabled = false; }
+        };
+
+        // ---------- user accounts (administrators) ----------
+        function renderPrivCheckboxes(containerId, selected) {
+            const box = document.getElementById(containerId);
+            if (!box) return;
+            box.innerHTML = PRIVILEGES.map(p => `
+                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <input type="checkbox" data-perm-key="${p.key}" ${selected && selected[p.key] === true ? 'checked' : ''} class="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600">
+                    <span><span class="block text-xs font-semibold text-slate-800">${p.label}</span><span class="block text-[11px] text-slate-500">${p.help}</span></span>
+                </label>`).join('');
+        }
+
+        function readPrivCheckboxes(containerId) {
+            const perms = {};
+            PRIVILEGES.forEach(p => {
+                perms[p.key] = !!document.querySelector(`#${containerId} input[data-perm-key="${p.key}"]`)?.checked;
+            });
+            return perms;
+        }
+
+        window.applyPrivPreset = function(containerId, preset) {
+            const on = PRIV_PRESETS[preset] || [];
+            document.querySelectorAll(`#${containerId} input[data-perm-key]`).forEach(cb => { cb.checked = on.includes(cb.dataset.permKey); });
+        };
+
+        window.generateTempPassword = function() {
+            const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';   // no look-alike characters
+            const limit = Math.floor(4294967296 / alphabet.length) * alphabet.length;
+            let pw = '';
+            while (true) {
+                pw = '';
+                while (pw.length < 14) {
+                    const buf = new Uint32Array(1);
+                    crypto.getRandomValues(buf);
+                    if (buf[0] < limit) pw += alphabet[buf[0] % alphabet.length];
+                }
+                if (/[A-Za-z]/.test(pw) && /[0-9]/.test(pw)) break;
+            }
+            const input = document.getElementById('new-user-password');
+            if (input) { input.value = pw; input.focus(); input.select(); }
+        };
+
+        function startUsersListener() {
+            if (usersUnsub || !window.db) return;
+            const { collection, onSnapshot } = window.firestoreHelpers;
+            usersUnsub = onSnapshot(collection(window.db, 'artifacts', window.appId, 'users'), (snap) => {
+                usersData = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+                window.renderUsers();
+            }, (err) => console.warn('Users listener error', err));
+        }
+
+        function otherActiveAdmins(excludeUid) {
+            return usersData.filter(u => u.uid !== excludeUid && u.disabled !== true && u.permissions && u.permissions.manageUsers === true).length;
+        }
+
+        window.renderUsers = function() {
+            const tbody = document.getElementById('users-tbody');
+            if (!tbody) return;
+            if (!document.querySelector('#create-user-privs input')) renderPrivCheckboxes('create-user-privs', PRIV_PRESETS.technician.reduce((o, k) => (o[k] = true, o), {}));
+            const rows = usersData.slice().sort((a, b) => String(a.displayName || a.email).localeCompare(String(b.displayName || b.email), undefined, { sensitivity: 'base' }));
+            if (rows.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-slate-400">No user accounts yet.</td></tr>'; return; }
+            tbody.innerHTML = rows.map(u => {
+                const me = u.uid === currentUid;
+                const perms = u.permissions || {};
+                const granted = PRIVILEGES.filter(p => perms[p.key] === true);
+                const chips = granted.length === PRIVILEGES.length
+                    ? '<span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-purple-100 text-purple-800">Full access</span>'
+                    : granted.length === 0
+                        ? '<span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-slate-100 text-slate-600">View only</span>'
+                        : granted.map(p => `<span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-sky-100 text-sky-800">${PRIV_SHORT[p.key]}</span>`).join(' ');
+                const status = u.disabled === true
+                    ? '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">Disabled</span>'
+                    : u.mustChangePassword === true
+                        ? '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">Awaiting first sign-in</span>'
+                        : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">Active</span>';
+                return `<tr class="hover:bg-slate-50 transition">
+                    <td class="px-4 py-3"><div class="font-bold text-slate-800">${escapeHtml(u.displayName || '(no name)')}${me ? ' <span class="text-[11px] font-semibold text-blue-600">(you)</span>' : ''}</div><div class="text-xs text-slate-500 font-mono">${escapeHtml(u.email)}</div></td>
+                    <td class="px-4 py-3"><div class="flex flex-wrap gap-1">${chips}</div></td>
+                    <td class="px-4 py-3">${status}</td>
+                    <td class="px-4 py-3 text-right space-x-1 whitespace-nowrap">
+                        <button type="button" data-uid="${escapeHtml(u.uid)}" onclick="window.openUserEdit(this.dataset.uid)" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition">Edit</button>
+                        <button type="button" data-email="${escapeHtml(u.email)}" onclick="window.sendUserReset(this.dataset.email)" title="Email a password reset link" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition">Reset password</button>
+                        ${me ? '' : `<button type="button" data-uid="${escapeHtml(u.uid)}" onclick="window.toggleUserDisabled(this.dataset.uid)" class="px-2.5 py-1.5 ${u.disabled === true ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700' : 'bg-rose-50 hover:bg-rose-100 text-rose-600'} rounded-lg text-xs font-semibold transition">${u.disabled === true ? 'Enable' : 'Disable'}</button>`}
+                    </td>
+                </tr>`;
+            }).join('');
+        };
+
+        window.createUserAccount = async function(event) {
+            event.preventDefault();
+            if (!requirePriv('manageUsers')) return;
+            setMessage('create-user-error', '');
+            const name = document.getElementById('new-user-name').value.trim();
+            const email = document.getElementById('new-user-email').value.trim().toLowerCase();
+            const password = document.getElementById('new-user-password').value;
+            const permissions = readPrivCheckboxes('create-user-privs');
+            if (!name) { setMessage('create-user-error', 'Enter the person’s full name.'); return; }
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setMessage('create-user-error', 'Enter a valid email address.'); return; }
+            const problem = passwordProblem(password, email, '');
+            if (problem) { setMessage('create-user-error', 'Temporary password: ' + problem); return; }
+            if (usersData.some(u => String(u.email).toLowerCase() === email)) { setMessage('create-user-error', 'A user with that email already exists.'); return; }
+
+            const btn = document.getElementById('create-user-submit');
+            btn.disabled = true;
+            let uid = null;
+            try {
+                uid = await window.authApi.createManagedUser(email, password);
+                await window.firestoreHelpers.setDoc(profileRef(uid), {
+                    email, displayName: name, permissions,
+                    disabled: false, mustChangePassword: true,
+                    createdAt: new Date().toISOString(), createdBy: currentUid
+                });
+            } catch (err) {
+                if (uid) {
+                    setMessage('create-user-error', 'The login was created, but saving its privileges failed. In the Firebase console (Authentication > Users) delete ' + email + ' and try again.');
+                } else if (err && err.code === 'auth/email-already-in-use') {
+                    setMessage('create-user-error', 'That email already has a login in Firebase but no EquipTrack account. Delete it in the Firebase console (Authentication > Users), then create it here.');
+                } else {
+                    setMessage('create-user-error', authErrorText(err));
+                }
+                btn.disabled = false;
+                return;
+            }
+            btn.disabled = false;
+            const where = /^https?:/.test(location.protocol) ? `\nSign in at: ${location.href.split('#')[0].split('?')[0]}` : '';
+            document.getElementById('create-user-result-title').textContent = `Account created for ${name}`;
+            document.getElementById('create-user-result-text').textContent = `Name: ${name}\nSign-in email: ${email}\nTemporary password: ${password}${where}\n\nYou will be asked to choose a new password the first time you sign in.`;
+            document.getElementById('create-user-result').classList.remove('hidden');
+            document.getElementById('create-user-copy').innerHTML = '<i class="fa-solid fa-copy mr-1.5"></i> Copy details';
+            ['new-user-name', 'new-user-email', 'new-user-password'].forEach(id => { document.getElementById(id).value = ''; });
+            window.applyPrivPreset('create-user-privs', 'technician');
+        };
+
+        window.dismissCreateResult = function() {
+            const box = document.getElementById('create-user-result');
+            if (box) box.classList.add('hidden');
+            const pre = document.getElementById('create-user-result-text');
+            if (pre) pre.textContent = '';
+        };
+
+        window.copyCreateResult = async function() {
+            const text = document.getElementById('create-user-result-text').textContent;
+            const btn = document.getElementById('create-user-copy');
+            try { await navigator.clipboard.writeText(text); btn.innerHTML = '<i class="fa-solid fa-check mr-1.5"></i> Copied'; }
+            catch (e) {
+                const range = document.createRange(); range.selectNodeContents(document.getElementById('create-user-result-text'));
+                const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+                btn.textContent = 'Press Ctrl+C to copy';
+            }
+        };
+
+        window.openUserEdit = function(uid) {
+            if (!requirePriv('manageUsers')) return;
+            const u = usersData.find(x => x.uid === uid);
+            if (!u) return;
+            document.getElementById('user-edit-uid').value = uid;
+            document.getElementById('user-edit-name').value = u.displayName || '';
+            document.getElementById('user-edit-email').textContent = u.email || '';
+            renderPrivCheckboxes('user-edit-privs', u.permissions || {});
+            setMessage('user-edit-error', '');
+            document.getElementById('user-edit-modal').classList.remove('hidden');
+        };
+        window.closeUserEditModal = function() { document.getElementById('user-edit-modal')?.classList.add('hidden'); };
+
+        window.saveUserEdits = async function(event) {
+            event.preventDefault();
+            if (!requirePriv('manageUsers')) return;
+            const uid = document.getElementById('user-edit-uid').value;
+            const u = usersData.find(x => x.uid === uid);
+            if (!u) return;
+            const displayName = document.getElementById('user-edit-name').value.trim();
+            const permissions = readPrivCheckboxes('user-edit-privs');
+            if (!displayName) { setMessage('user-edit-error', 'Enter the person’s full name.'); return; }
+            const wasAdmin = u.permissions && u.permissions.manageUsers === true && u.disabled !== true;
+            if (wasAdmin && !permissions.manageUsers && otherActiveAdmins(uid) === 0) {
+                setMessage('user-edit-error', 'You can’t remove “Manage user accounts” from the only administrator. Give it to someone else first.');
+                return;
+            }
+            try {
+                await window.firestoreHelpers.updateDoc(profileRef(uid), { displayName, permissions });
+                window.closeUserEditModal();
+            } catch (err) { setMessage('user-edit-error', 'Could not save: ' + ((err && err.code) || 'unknown error')); }
+        };
+
+        window.toggleUserDisabled = async function(uid) {
+            if (!requirePriv('manageUsers')) return;
+            const u = usersData.find(x => x.uid === uid);
+            if (!u || uid === currentUid) return;
+            const disabling = u.disabled !== true;
+            if (disabling && u.permissions && u.permissions.manageUsers === true && otherActiveAdmins(uid) === 0) {
+                alert('You can’t disable the only administrator.');
+                return;
+            }
+            if (!confirm(disabling ? `Disable ${u.displayName || u.email}? They will be signed out and unable to sign in until you enable them again.` : `Enable ${u.displayName || u.email}?`)) return;
+            try { await window.firestoreHelpers.updateDoc(profileRef(uid), { disabled: disabling }); }
+            catch (err) { alert('Could not update the account: ' + ((err && err.code) || 'unknown error')); }
+        };
+
+        window.sendUserReset = async function(email) {
+            if (!requirePriv('manageUsers')) return;
+            if (!confirm(`Email a password reset link to ${email}?`)) return;
+            try { await window.authApi.resetEmail(email); alert(`A password reset link was sent to ${email}.`); }
+            catch (err) { alert(authErrorText(err)); }
+        };
+
+        let dataUnsubs = [];
         window.initFirestoreListeners = function() {
             if (!window.db || !window.currentUser) return;
-            const { collection, doc, onSnapshot, setDoc } = window.firestoreHelpers;
+            const { collection, onSnapshot } = window.firestoreHelpers;
+            dataUnsubs.forEach(u => { try { u(); } catch (e) {} });
+            dataUnsubs = [];
+            const col = (name) => collection(window.db, 'artifacts', window.appId, 'public', 'data', name);
 
-            const equipCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups');
-            const teamCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster');
-            const archiveCollectionRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'usage_archive');
-
-            onSnapshot(archiveCollectionRef, (snapshot) => {
-                if (snapshot.empty) return;
-                const merged = new Map(archiveData.map(r => [r.id, r]));
-                snapshot.forEach(docSnap => { const r = docSnap.data(); merged.set(r.id, r); });
-                archiveData = Array.from(merged.values());
+            // The cloud is the source of truth once someone is signed in.
+            dataUnsubs.push(onSnapshot(col('usage_archive'), (snapshot) => {
+                archiveData = snapshot.docs.map(d => d.data());
                 saveStorageData();
-                window.renderArchive();
-            }, (err) => console.warn("Archive listener error", err));
+                window.refreshAllViews();
+            }, handleListenerError));
 
-            onSnapshot(equipCollectionRef, (snapshot) => {
-                if (snapshot.empty && equipmentData.length === 0) {
-                    initialSeedEquipment.forEach(item => {
-                        const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', item.id);
-                        setDoc(docRef, item);
-                    });
-                } else {
-                    const loadedEquip = [];
-                    snapshot.forEach(docSnap => loadedEquip.push(docSnap.data()));
-                    equipmentData = loadedEquip;
-                    window.refreshAllViews();
-                }
-            });
+            dataUnsubs.push(onSnapshot(col('equipment_groups'), (snapshot) => {
+                equipmentData = snapshot.docs.map(d => d.data());
+                saveStorageData();
+                window.refreshAllViews();
+            }, handleListenerError));
 
-            onSnapshot(teamCollectionRef, (snapshot) => {
-                if (snapshot.empty && teamRosterData.length === 0) {
-                    initialSeedTeam.forEach(item => {
-                        const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster', item.id);
-                        setDoc(docRef, item);
-                    });
-                } else {
-                    const loadedTeam = [];
-                    snapshot.forEach(docSnap => loadedTeam.push(docSnap.data()));
-                    teamRosterData = loadedTeam;
-                    window.refreshAllViews();
-                }
-            });
+            dataUnsubs.push(onSnapshot(col('team_roster'), (snapshot) => {
+                teamRosterData = snapshot.docs.map(d => d.data());
+                saveStorageData();
+                window.refreshAllViews();
+            }, handleListenerError));
         };
+
+        function handleListenerError(err) {
+            console.warn('Firestore listener error', err);
+            if (err && err.code === 'permission-denied') forceSignOut('Your access to the data was removed or has changed. Please sign in again.');
+        }
+
+        function handleWriteError(err) {
+            console.error('Cloud write failed', err);
+            if (err && err.code === 'permission-denied') {
+                alert('That change was not saved because your account does not have permission to make it. The page will reload to show the current data.');
+                location.reload();
+            } else {
+                alert('The change could not be saved to the cloud: ' + ((err && err.message) || err));
+            }
+        }
 
         window.refreshAllViews = function() {
             window.renderDashboard();
@@ -1124,7 +1853,7 @@
             if (window.db && window.currentUser) {
                 const { doc, setDoc } = window.firestoreHelpers;
                 const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', groupObj.id);
-                await setDoc(docRef, groupObj);
+                await setDoc(docRef, groupObj).catch(handleWriteError);
             }
             saveStorageData();
         }
@@ -1146,7 +1875,7 @@
             if (window.db && window.currentUser) {
                 const { doc, deleteDoc } = window.firestoreHelpers;
                 const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'equipment_groups', groupId);
-                await deleteDoc(docRef);
+                await deleteDoc(docRef).catch(handleWriteError);
             }
             saveStorageData();
         }
@@ -1155,7 +1884,7 @@
             if (window.db && window.currentUser) {
                 const { doc, setDoc } = window.firestoreHelpers;
                 const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster', techObj.id);
-                await setDoc(docRef, techObj);
+                await setDoc(docRef, techObj).catch(handleWriteError);
             }
             saveStorageData();
         }
@@ -1164,17 +1893,10 @@
             if (window.db && window.currentUser) {
                 const { doc, deleteDoc } = window.firestoreHelpers;
                 const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'team_roster', techId);
-                await deleteDoc(docRef);
+                await deleteDoc(docRef).catch(handleWriteError);
             }
             saveStorageData();
         }
-
-        window.onload = function() {
-            loadStorageData();
-            if (equipmentData.length === 0) equipmentData = [...initialSeedEquipment];
-            if (teamRosterData.length === 0) teamRosterData = [...initialSeedTeam];
-            window.refreshAllViews();
-        };
 
         function loadStorageData() {
             const savedEquip = localStorage.getItem('equiptrack_groups');
@@ -1193,6 +1915,7 @@
         }
 
         window.exportDatabase = function() {
+            if (!requirePriv('importExport')) return;
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ equipment: equipmentData, team: teamRosterData, archive: archiveData }));
             const dlAnchor = document.createElement('a');
             dlAnchor.setAttribute("href", dataStr);
@@ -1203,19 +1926,21 @@
         };
 
         window.importDatabase = function(event) {
+            if (!requirePriv('importExport')) { if (event && event.preventDefault) event.preventDefault(); return; }
             const file = event.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
                     const parsed = JSON.parse(e.target.result);
-                    if (parsed.equipment && parsed.team) {
-                        equipmentData = parsed.equipment;
-                        teamRosterData = parsed.team;
-                        archiveData = Array.isArray(parsed.archive) ? parsed.archive : [];
-                        saveStorageData();
-                        archiveData.forEach(r => syncArchiveToCloud(r));
-                        location.reload();
+                    if (Array.isArray(parsed.equipment) && Array.isArray(parsed.team)) {
+                        if (!confirm(`Import ${parsed.equipment.length} groups, ${parsed.team.length} personnel and ${Array.isArray(parsed.archive) ? parsed.archive.length : 0} archive records from this file?\n\nGroups and people with the same ID will be overwritten.`)) return;
+                        const archive = Array.isArray(parsed.archive) ? parsed.archive : [];
+                        Promise.allSettled([
+                            ...parsed.equipment.filter(g => g && g.id).map(g => syncGroupToCloud(g)),
+                            ...parsed.team.filter(t => t && t.id).map(t => syncTechToCloud(t)),
+                            ...archive.filter(r => r && r.id).map(r => syncArchiveToCloud(r))
+                        ]).then(() => location.reload());
                     } else { alert("Invalid JSON format."); }
                 } catch(err) { alert("Error parsing JSON file."); }
             };
@@ -1223,6 +1948,9 @@
         };
 
         window.switchTab = function(tabId) {
+            const needsPriv = { 'users': 'manageUsers', 'create-group': 'manageGroups' };
+            if (needsPriv[tabId] && !window.can(needsPriv[tabId])) tabId = 'dashboard';
+            if (tabId !== 'users' && typeof window.dismissCreateResult === 'function') window.dismissCreateResult();
             document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
             document.querySelectorAll('.nav-btn').forEach(btn => {
                 btn.classList.remove('text-blue-400', 'bg-slate-800/80');
@@ -1246,6 +1974,7 @@
             if (tabId === 'team') window.renderTeamRoster();
             if (tabId === 'calibration') window.renderCalibrationHub();
             if (tabId === 'reports') window.renderReportsHub();
+            if (tabId === 'users') window.renderUsers();
         };
 
         function getCalibStatus(dueDateStr) {
@@ -1304,10 +2033,10 @@
                     const calibState = getCalibStatus(g.calibrationDueDate);
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td class="py-2.5 px-2 font-mono font-bold text-xs text-blue-600">${g.id}</td>
-                        <td class="py-2.5 px-2 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
+                        <td class="py-2.5 px-2 font-mono font-bold text-xs text-blue-600">${escapeHtml(g.id)}</td>
+                        <td class="py-2.5 px-2 font-semibold text-slate-800">${escapeHtml(g.category || 'General Equipment')}</td>
                         <td class="py-2.5 px-2 font-mono text-xs">${g.serials ? g.serials.length : 0}</td>
-                        <td class="py-2.5 px-2"><span class="px-2 py-0.5 text-[10px] font-bold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span></td>
+                        <td class="py-2.5 px-2"><span class="px-2 py-0.5 text-[10px] font-bold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${escapeHtml(g.status)}</span></td>
                         <td class="py-2.5 px-2"><span class="px-2 py-0.5 text-[10px] font-bold rounded-full border ${calibState.class}">${calibState.text}</span></td>
                     `;
                     tbody.appendChild(tr);
@@ -1327,7 +2056,7 @@
                     urgentItems.forEach(g => {
                         const div = document.createElement('div');
                         div.className = "p-2 bg-rose-50 border border-rose-200 rounded-xl flex justify-between items-center text-xs";
-                        div.innerHTML = `<div><strong class="text-slate-800">${g.id}</strong></div><span class="font-mono font-bold text-rose-700">${g.calibrationDueDate}</span>`;
+                        div.innerHTML = `<div><strong class="text-slate-800">${escapeHtml(g.id)}</strong></div><span class="font-mono font-bold text-rose-700">${escapeHtml(g.calibrationDueDate)}</span>`;
                         alertList.appendChild(div);
                     });
                 }
@@ -1420,11 +2149,11 @@
                 const tr = document.createElement('tr');
                 tr.className = isOverdue ? "bg-rose-100 hover:bg-rose-200 border-l-4 border-rose-500 transition" : "hover:bg-slate-50 transition";
                 tr.innerHTML = `
-                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
-                    <td class="px-4 py-3 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(g.category || 'General Equipment')}</td>
                     <td class="px-4 py-3 font-mono text-center font-bold text-slate-700">${g.serials ? g.serials.length : 0}</td>
                     <td class="px-4 py-3">
-                        <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span>
+                        <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${escapeHtml(g.status)}</span>
                     </td>
                     <td class="px-4 py-3 text-xs">
                         ${g.status === 'Checked Out' ? `<div class="font-bold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</div>${(g.projectNumber || '').trim()
@@ -1445,13 +2174,13 @@
                             : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-100 text-slate-500">No</span>'}
                     </td>
                     <td class="px-4 py-3 text-right space-x-1">
-                        <button onclick="window.openBrotherPrinterModal('${g.id}')" title="Print Brother Label" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-print"></i></button>
+                        <button data-id="${escapeHtml(g.id)}" onclick="window.openBrotherPrinterModal(this.dataset.id)" title="Print Brother Label" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-print"></i></button>
                         ${g.status === 'Checked Out' ? 
-                            `<button onclick="window.checkInGroup('${g.id}')" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-down-to-bracket"></i></button>` : 
-                            `<button onclick="window.openCheckoutModal('${g.id}')" title="Check Out" class="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>`}
-                        <button onclick="window.viewGroupHistory('${g.id}')" title="Usage History" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                            `<button data-id="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.id)" data-priv="checkout" title="Check In" class="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-down-to-bracket"></i></button>` : 
+                            `<button data-id="${escapeHtml(g.id)}" onclick="window.openCheckoutModal(this.dataset.id)" data-priv="checkout" title="Check Out" class="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs transition"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>`}
+                        <button data-id="${escapeHtml(g.id)}" onclick="window.viewGroupHistory(this.dataset.id)" title="Usage History" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-clock-rotate-left"></i></button>
                         <button data-group="${escapeHtml(g.id)}" onclick="window.openNotesModal(this.dataset.group)" title="${(g.notes || '').trim() ? 'View / Edit Notes' : 'Add Notes'}" class="p-1.5 ${(g.notes || '').trim() ? 'bg-sky-100 hover:bg-sky-200 text-sky-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} rounded-lg text-xs transition"><i class="fa-solid fa-note-sticky"></i></button>
-                        <button onclick="window.editEquipmentGroup('${g.id}')" title="Edit Group" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
+                        <button data-id="${escapeHtml(g.id)}" onclick="window.editEquipmentGroup(this.dataset.id)" data-priv="manageGroups" title="Edit Group" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -1459,6 +2188,7 @@
         };
 
         window.prepareCreateGroupForm = function() {
+            if (!requirePriv('manageGroups')) return;
             window.resetGroupForm();
             window.switchTab('create-group');
         };
@@ -1530,7 +2260,7 @@
                     <td class="px-3 py-2.5 text-center font-mono font-bold">${daysOut ?? '—'}</td>
                     <td class="px-3 py-2.5">${mono(g.returnDueDate)}</td>
                     <td class="px-3 py-2.5">${late ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">${late}d overdue</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On schedule</span>'}</td>
-                    <td class="px-3 py-2.5 text-right"><button type="button" data-group="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.group)" title="Check in ${escapeHtml(g.id)}" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm whitespace-nowrap"><i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> Check In</button></td>
+                    <td class="px-3 py-2.5 text-right" data-priv="checkout"><button type="button" data-group="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.group)" title="Check in ${escapeHtml(g.id)}" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm whitespace-nowrap"><i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> Check In</button></td>
                 </tr>`;
             }).join('');
 
@@ -1552,7 +2282,7 @@
                     <div class="flex items-center space-x-2 text-amber-600"><i class="fa-solid fa-hand-holding"></i><h4 class="font-bold text-slate-800 text-sm">Currently Assigned Groups <span class="ml-1 px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] rounded-full">${current.length}</span></h4></div>
                     ${current.length === 0 ? wrap(empty('No groups are currently checked out to this project.')) : wrap(`
                     <table class="w-full text-left border-collapse text-sm">
-                        <thead class="${head}"><tr>${th('Group')}${th('Checked Out To')}${th('Checked Out')}${th('Days Out', 'text-center')}${th('Return By')}${th('Status')}${th('Action', 'text-right')}</tr></thead>
+                        <thead class="${head}"><tr>${th('Group')}${th('Checked Out To')}${th('Checked Out')}${th('Days Out', 'text-center')}${th('Return By')}${th('Status')}<th class="px-3 py-2.5 text-right" data-priv="checkout">Action</th></tr></thead>
                         <tbody class="divide-y divide-slate-100">${currentRows}</tbody>
                     </table>`)}
                 </section>
@@ -1579,6 +2309,8 @@
             document.getElementById('notes-modal-group').innerText = group.id;
             const ta = document.getElementById('notes-textarea');
             ta.value = group.notes || '';
+            ta.readOnly = !window.can('editNotes');
+            ta.placeholder = ta.readOnly ? 'No notes on this group.' : 'Condition, damage, repairs, missing parts, handling instructions...';
             document.getElementById('notes-modal').classList.remove('hidden');
             ta.focus();
         };
@@ -1588,6 +2320,7 @@
         };
 
         window.saveGroupNotes = function(event) {
+            if (!requirePriv('editNotes')) { if (event && event.preventDefault) event.preventDefault(); return; }
             event.preventDefault();
             const group = equipmentData.find(g => g.id === document.getElementById('notes-group-id').value);
             if (!group) return;
@@ -1600,6 +2333,7 @@
         };
 
         window.editEquipmentGroup = function(groupId) {
+            if (!requirePriv('manageGroups')) return;
             const group = equipmentData.find(g => g.id === groupId);
             if (!group) return;
 
@@ -1625,6 +2359,7 @@
         };
 
         window.saveEquipmentGroup = function(event) {
+            if (!requirePriv('manageGroups')) { if (event && event.preventDefault) event.preventDefault(); return; }
             event.preventDefault();
             const originalId = document.getElementById('edit-group-original-id')?.value;
             const newId = document.getElementById('group-input-id')?.value.trim().toUpperCase();
@@ -1697,14 +2432,14 @@
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50";
                 tr.innerHTML = `
-                    <td class="px-4 py-3 font-bold text-slate-800">${t.name}</td>
-                    <td class="px-4 py-3 text-slate-600">${t.role || 'N/A'}</td>
-                    <td class="px-4 py-3 text-slate-600">${t.dept || 'N/A'}</td>
-                    <td class="px-4 py-3 text-slate-600 font-mono text-xs">${t.contact || 'N/A'}</td>
+                    <td class="px-4 py-3 font-bold text-slate-800">${escapeHtml(t.name)}</td>
+                    <td class="px-4 py-3 text-slate-600">${escapeHtml(t.role || 'N/A')}</td>
+                    <td class="px-4 py-3 text-slate-600">${escapeHtml(t.dept || 'N/A')}</td>
+                    <td class="px-4 py-3 text-slate-600 font-mono text-xs">${escapeHtml(t.contact || 'N/A')}</td>
                     <td class="px-4 py-3 font-mono font-bold text-blue-600">${activeCheckouts} Groups</td>
                     <td class="px-4 py-3 text-right space-x-1">
-                        <button onclick="window.editTeamMember('${t.id}')" title="Edit Personnel" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
-                        <button onclick="window.deleteTeamMember('${t.id}')" title="Delete Personnel" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs transition"><i class="fa-solid fa-trash"></i></button>
+                        <button data-id="${escapeHtml(t.id)}" onclick="window.editTeamMember(this.dataset.id)" data-priv="managePersonnel" title="Edit Personnel" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
+                        <button data-id="${escapeHtml(t.id)}" onclick="window.deleteTeamMember(this.dataset.id)" data-priv="managePersonnel" title="Delete Personnel" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs transition"><i class="fa-solid fa-trash"></i></button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -1712,6 +2447,7 @@
         };
 
         window.openAddTeamModal = function() {
+            if (!requirePriv('managePersonnel')) return;
             const form = document.getElementById('team-form');
             if (form) form.reset();
             const inputId = document.getElementById('team-input-id');
@@ -1723,6 +2459,7 @@
         };
 
         window.editTeamMember = function(id) {
+            if (!requirePriv('managePersonnel')) return;
             const person = teamRosterData.find(t => t.id === id);
             if (!person) return;
             const form = document.getElementById('team-form');
@@ -1742,6 +2479,7 @@
         };
 
         window.saveTeamMember = function(event) {
+            if (!requirePriv('managePersonnel')) { if (event && event.preventDefault) event.preventDefault(); return; }
             event.preventDefault();
             const id = document.getElementById('team-input-id')?.value;
             const name = document.getElementById('team-input-name')?.value.trim();
@@ -1775,6 +2513,7 @@
         };
 
         window.deleteTeamMember = function(id) {
+            if (!requirePriv('managePersonnel')) return;
             teamRosterData = teamRosterData.filter(t => t.id !== id);
             removeTechFromCloud(id);
             window.renderTeamRoster();
@@ -1795,15 +2534,15 @@
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50";
                 tr.innerHTML = `
-                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
-                    <td class="px-4 py-3 font-semibold text-slate-800">${g.category || 'General Equipment'}</td>
-                    <td class="px-4 py-3 font-mono text-slate-600">${g.calibrationDueDate || 'N/A'}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(g.category || 'General Equipment')}</td>
+                    <td class="px-4 py-3 font-mono text-slate-600">${escapeHtml(g.calibrationDueDate || 'N/A')}</td>
                     <td class="px-4 py-3 font-medium ${diffDays < 0 ? 'text-rose-600 font-bold' : diffDays <= 30 ? 'text-amber-600 font-bold' : 'text-slate-600'}">
                         ${calibDate ? (diffDays < 0 ? `${Math.abs(diffDays)} days overdue` : `${diffDays} days left`) : 'N/A'}
                     </td>
                     <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
                     <td class="px-4 py-3 text-right">
-                        <button onclick="window.quickRecalibrate('${g.id}')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">+1 Year Renew</button>
+                        <button data-id="${escapeHtml(g.id)}" onclick="window.quickRecalibrate(this.dataset.id)" data-priv="manageGroups" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">+1 Year Renew</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -1811,6 +2550,7 @@
         };
 
         window.quickRecalibrate = function(groupId) {
+            if (!requirePriv('manageGroups')) return;
             const group = equipmentData.find(g => g.id === groupId);
             if (!group) return;
             const nextYear = new Date();
@@ -1822,6 +2562,7 @@
         };
 
         window.openCheckoutModal = function(preselectGroupId) {
+            if (!requirePriv('checkout')) return;
             const selectGroup = document.getElementById('checkout-select-group');
             if (selectGroup) {
                 selectGroup.innerHTML = '';
@@ -1874,6 +2615,7 @@
         };
 
         window.saveInlineTech = function() {
+            if (!requirePriv('managePersonnel')) return;
             const name = document.getElementById('inline-tech-name')?.value.trim();
             const role = document.getElementById('inline-tech-role')?.value.trim();
             if (!name) return alert("Please enter technician name.");
@@ -1899,6 +2641,7 @@
         };
 
         window.processCheckoutSubmit = function(event) {
+            if (!requirePriv('checkout')) { if (event && event.preventDefault) event.preventDefault(); return; }
             event.preventDefault();
             const groupId = document.getElementById('checkout-select-group')?.value;
             const techName = document.getElementById('checkout-select-tech')?.value;
@@ -1922,6 +2665,7 @@
         };
 
         window.checkInGroup = function(groupId) {
+            if (!requirePriv('checkout')) return;
             const group = equipmentData.find(g => g.id === groupId);
             if (!group) return;
             document.getElementById('checkin-group-id').value = group.id;
@@ -1940,6 +2684,7 @@
         };
 
         window.processCheckInSubmit = function(event) {
+            if (!requirePriv('checkout')) { if (event && event.preventDefault) event.preventDefault(); return; }
             event.preventDefault();
             const location = document.getElementById('checkin-location').value;
             if (!SHOP_LOCATIONS.includes(location)) return;
@@ -1948,6 +2693,7 @@
         };
 
         function finalizeCheckIn(groupId, location) {
+            if (!requirePriv('checkout')) return;
             const group = equipmentData.find(g => g.id === groupId);
             if (group) {
                 if (group.status === 'Checked Out') {
@@ -2179,10 +2925,10 @@
                 const calibState = getCalibStatus(g.calibrationDueDate);
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
-                    <td class="px-4 py-3 font-semibold text-slate-800">${g.category || 'General'}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-800">${escapeHtml(g.category || 'General')}</td>
                     <td class="px-4 py-3 font-mono text-center">${g.serials ? g.serials.length : 0}</td>
-                    <td class="px-4 py-3 font-mono">${g.calibrationDueDate}</td>
+                    <td class="px-4 py-3 font-mono">${escapeHtml(g.calibrationDueDate)}</td>
                     <td class="px-4 py-3 font-bold ${diffDays < 0 ? 'text-rose-600' : 'text-amber-600'}">${diffDays < 0 ? `${Math.abs(diffDays)}d Overdue` : `${diffDays}d Left`}</td>
                     <td class="px-4 py-3"><span class="px-2.5 py-0.5 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
                 `;
@@ -2221,10 +2967,10 @@
             checkedOutItems.forEach(g => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${g.id}</td>
-                    <td class="px-4 py-3 font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</td>
-                    <td class="px-4 py-3 font-mono text-slate-600">${g.projectNumber || 'N/A'}</td>
-                    <td class="px-4 py-3 font-mono">${g.returnDueDate || 'N/A'}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-blue-600">${escapeHtml(g.id)}</td>
+                    <td class="px-4 py-3 font-bold text-slate-800">${escapeHtml(g.assignedUser || 'Unassigned')}</td>
+                    <td class="px-4 py-3 font-mono text-slate-600">${escapeHtml(g.projectNumber || 'N/A')}</td>
+                    <td class="px-4 py-3 font-mono">${escapeHtml(g.returnDueDate || 'N/A')}</td>
                     <td class="px-4 py-3 font-mono text-center font-bold">${g.serials ? g.serials.length : 0}</td>
                 `;
                 tbody.appendChild(tr);
@@ -2251,10 +2997,10 @@
                 const daysOverdue = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="px-4 py-3 font-mono font-bold text-rose-600">${g.id}</td>
-                    <td class="px-4 py-3 font-bold text-slate-800">${g.assignedUser || 'Unassigned'}</td>
-                    <td class="px-4 py-3 font-mono text-slate-600">${g.projectNumber || 'N/A'}</td>
-                    <td class="px-4 py-3 font-mono text-rose-600">${g.returnDueDate}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-rose-600">${escapeHtml(g.id)}</td>
+                    <td class="px-4 py-3 font-bold text-slate-800">${escapeHtml(g.assignedUser || 'Unassigned')}</td>
+                    <td class="px-4 py-3 font-mono text-slate-600">${escapeHtml(g.projectNumber || 'N/A')}</td>
+                    <td class="px-4 py-3 font-mono text-rose-600">${escapeHtml(g.returnDueDate)}</td>
                     <td class="px-4 py-3 font-bold text-rose-600">${daysOverdue} Days Overdue</td>
                 `;
                 tbody.appendChild(tr);
@@ -2270,15 +3016,15 @@
                 const div = document.createElement('div');
                 div.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2";
                 const serialsList = g.serials && g.serials.length > 0 
-                    ? g.serials.map(s => `<span class="px-2 py-0.5 bg-slate-100 rounded text-xs font-mono border border-slate-200">${s.serialId}</span>`).join(' ')
+                    ? g.serials.map(s => `<span class="px-2 py-0.5 bg-slate-100 rounded text-xs font-mono border border-slate-200">${escapeHtml(s.serialId)}</span>`).join(' ')
                     : '<span class="text-xs text-slate-400 italic">No individual serial numbers assigned</span>';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <div class="font-mono font-bold text-sm text-blue-600">${g.id} <span class="text-xs font-normal text-slate-500">(${g.category || 'General'})</span></div>
-                        <span class="px-2 py-0.5 text-xs font-bold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${g.status}</span>
+                        <div class="font-mono font-bold text-sm text-blue-600">${escapeHtml(g.id)} <span class="text-xs font-normal text-slate-500">(${escapeHtml(g.category || 'General')})</span></div>
+                        <span class="px-2 py-0.5 text-xs font-bold rounded-full ${g.status === 'Checked Out' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${escapeHtml(g.status)}</span>
                     </div>
-                    <div class="text-xs text-slate-600"><strong>Calibration Due:</strong> ${g.calibrationDueDate || 'N/A'} | <strong>Assigned Tech:</strong> ${g.assignedUser || 'None'}</div>
+                    <div class="text-xs text-slate-600"><strong>Calibration Due:</strong> ${escapeHtml(g.calibrationDueDate || 'N/A')} | <strong>Assigned Tech:</strong> ${escapeHtml(g.assignedUser || 'None')}</div>
                     <div class="pt-1"><strong class="text-xs text-slate-700 block mb-1">Embedded Serial Numbers (${g.serials ? g.serials.length : 0}):</strong> <div class="flex flex-wrap gap-1">${serialsList}</div></div>
                 `;
                 container.appendChild(div);
@@ -2326,7 +3072,7 @@
             const parse = d => d ? new Date(d + 'T00:00:00') : null;
             const groupLink = id => `<button data-group="${escapeHtml(id)}" onclick="window.openGroupFromSerial(this.dataset.group)" title="View in Inventory" class="font-mono font-bold text-blue-600 hover:underline">${escapeHtml(id)}</button>`;
             const pill = (text, cls) => `<span class="px-2.5 py-1 text-xs font-semibold rounded-full ${cls}">${escapeHtml(text)}</span>`;
-            const loc = g => g.status === 'Checked Out' ? (g.projectNumber || 'N/A') : (g.location ? `In shop - ${g.location}` : 'In shop');
+            const loc = g => g.status === 'Checked Out' ? (g.projectNumber || 'N/A') : (g.location ? `In shop - ${escapeHtml(g.location)}` : 'In shop');
             const locHtml = g => g.status === 'Checked Out'
                 ? `<span class="font-mono text-xs text-slate-700">${escapeHtml(g.projectNumber) || 'N/A'}</span>`
                 : `<span class="text-xs text-slate-500">In shop${g.location ? ` · ${escapeHtml(g.location)}` : ''}</span>`;
