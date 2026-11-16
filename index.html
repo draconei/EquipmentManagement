@@ -599,7 +599,6 @@
                                     <th class="px-4 py-3 select-none" data-team-sort="name" aria-sort="none"><button type="button" onclick="window.sortTeam('name')" title="Sort by Technician / Staff Name" class="inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition"><span>Technician / Staff Name</span><i class="team-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 select-none" data-team-sort="role" aria-sort="none"><button type="button" onclick="window.sortTeam('role')" title="Sort by Role / Title" class="inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition"><span>Role / Title</span><i class="team-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 select-none" data-team-sort="dept" aria-sort="none"><button type="button" onclick="window.sortTeam('dept')" title="Sort by Department" class="inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition"><span>Department</span><i class="team-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
-                                    <th class="px-4 py-3">Contact Email / Phone</th>
                                     <th class="px-4 py-3">Active Checkouts</th>
                                     <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
@@ -1265,10 +1264,6 @@
                 <div>
                     <label class="block text-xs font-bold text-slate-600 mb-1">Department / Division</label>
                     <input type="text" id="team-input-dept" placeholder="e.g. Subsea Testing" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Contact Email / Phone</label>
-                    <input type="text" id="team-input-contact" placeholder="e.g. marcus@company.com / 555-0192" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
                 <div class="flex items-center justify-end space-x-2 pt-2">
                     <button type="button" onclick="window.closeTeamModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
@@ -2435,7 +2430,7 @@
             });
 
             if (teamRosterData.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">No personnel registered in database.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No personnel registered in database.</td></tr>`;
                 return;
             }
 
@@ -2453,7 +2448,6 @@
                     <td class="px-4 py-3 font-bold text-slate-800">${escapeHtml(t.name)}</td>
                     <td class="px-4 py-3 text-slate-600">${escapeHtml(t.role || 'N/A')}</td>
                     <td class="px-4 py-3 text-slate-600">${escapeHtml(t.dept || 'N/A')}</td>
-                    <td class="px-4 py-3 text-slate-600 font-mono text-xs">${escapeHtml(t.contact || 'N/A')}</td>
                     <td class="px-4 py-3 font-mono font-bold text-blue-600">${activeCheckouts} Groups</td>
                     <td class="px-4 py-3 text-right space-x-1">
                         <button data-id="${escapeHtml(t.id)}" onclick="window.editTeamMember(this.dataset.id)" data-priv="managePersonnel" title="Edit Personnel" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
@@ -2486,7 +2480,6 @@
             document.getElementById('team-input-name').value = person.name || '';
             document.getElementById('team-input-role').value = person.role || '';
             document.getElementById('team-input-dept').value = person.dept || '';
-            document.getElementById('team-input-contact').value = person.contact || '';
             document.getElementById('team-modal-title').innerText = 'Edit Personnel';
             document.getElementById('team-modal').classList.remove('hidden');
         };
@@ -2503,13 +2496,12 @@
             const name = document.getElementById('team-input-name')?.value.trim();
             const role = document.getElementById('team-input-role')?.value.trim();
             const dept = document.getElementById('team-input-dept')?.value.trim();
-            const contact = document.getElementById('team-input-contact')?.value.trim();
 
             if (id) {
                 const index = teamRosterData.findIndex(t => t.id === id);
                 if (index !== -1) {
                     const oldName = teamRosterData[index].name;
-                    teamRosterData[index] = { id, name, role, dept, contact };
+                    teamRosterData[index] = { ...teamRosterData[index], id, name, role, dept };
                     if (oldName !== name) {
                         equipmentData.forEach(g => {
                             if (g.assignedUser === oldName) {
@@ -2521,7 +2513,7 @@
                     syncTechToCloud(teamRosterData[index]);
                 }
             } else {
-                const newTech = { id: `TECH-${Date.now()}`, name, role, dept, contact };
+                const newTech = { id: `TECH-${Date.now()}`, name, role, dept };
                 teamRosterData.push(newTech);
                 syncTechToCloud(newTech);
             }
