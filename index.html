@@ -1035,6 +1035,23 @@
         </div>
     </div>
 
+    <!-- MODAL: DELETE GROUP confirmation -->
+    <div id="delete-group-modal" role="dialog" aria-modal="true" aria-labelledby="delete-group-title" onclick="if(event.target===this) window.closeDeleteGroupModal()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[60] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0"><i class="fa-solid fa-trash"></i></div>
+                <h3 id="delete-group-title" class="font-bold text-slate-900 text-base">Delete this group?</h3>
+            </div>
+            <div id="delete-group-details" class="text-sm text-slate-700 space-y-1"></div>
+            <div id="delete-group-warning" class="hidden p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900"></div>
+            <p class="text-xs text-slate-500">This permanently removes the group and its serial list from the database for everyone. Its usage history stays in the archive. This cannot be undone.</p>
+            <div class="flex justify-end space-x-2 pt-1">
+                <button type="button" id="delete-group-cancel" onclick="window.closeDeleteGroupModal()" class="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-100">Cancel</button>
+                <button type="button" id="delete-group-confirm" onclick="window.confirmDeleteGroup()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white">Delete group</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: PERMANENT vs PROJECT confirmation -->
     <div id="permanent-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="permanent-confirm-title" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-[60] flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">
@@ -2242,6 +2259,7 @@
                         <button data-id="${escapeHtml(g.id)}" onclick="window.viewGroupHistory(this.dataset.id)" title="Usage History" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-clock-rotate-left"></i></button>
                         <button data-group="${escapeHtml(g.id)}" onclick="window.openNotesModal(this.dataset.group)" title="${(g.notes || '').trim() ? 'View / Edit Notes' : 'Add Notes'}" class="p-1.5 ${(g.notes || '').trim() ? 'bg-sky-100 hover:bg-sky-200 text-sky-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} rounded-lg text-xs transition"><i class="fa-solid fa-note-sticky"></i></button>
                         <button data-id="${escapeHtml(g.id)}" onclick="window.editEquipmentGroup(this.dataset.id)" data-priv="manageGroups" title="Edit Group" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs transition"><i class="fa-solid fa-pen"></i></button>
+                        <button data-id="${escapeHtml(g.id)}" onclick="window.deleteEquipmentGroup(this.dataset.id)" data-priv="manageGroups" title="Delete Group" aria-label="Delete group ${escapeHtml(g.id)}" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs transition"><i class="fa-solid fa-trash"></i></button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -2291,7 +2309,7 @@
         window.closeAboutModal = function() {
             document.getElementById('about-modal')?.classList.add('hidden');
         };
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') window.closeAboutModal(); });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { window.closeAboutModal(); window.closeDeleteGroupModal && window.closeDeleteGroupModal(); } });
 
         let openProjectName = null;
         window.openProjectModal = function(project) {
@@ -2391,6 +2409,45 @@
             window.renderInventoryTable();
             // setDoc replaces the whole document, so a removed note really is removed in the cloud too
             syncGroupToCloud(group);
+        };
+
+        let pendingDeleteGroupId = null;
+
+        window.deleteEquipmentGroup = function(groupId) {
+            if (!requirePriv('manageGroups')) return;
+            const g = equipmentData.find(x => x.id === groupId);
+            if (!g) return;
+            pendingDeleteGroupId = groupId;
+            const n = g.serials ? g.serials.length : 0;
+            document.getElementById('delete-group-details').innerHTML =
+                `<div><span class="text-slate-500">Group:</span> <strong class="font-mono text-slate-900">${escapeHtml(g.id)}</strong></div>
+                 <div><span class="text-slate-500">Category:</span> ${escapeHtml(g.category || 'General Equipment')}</div>
+                 <div><span class="text-slate-500">Serial numbers:</span> ${n}</div>`;
+            const warn = document.getElementById('delete-group-warning');
+            if (g.status === 'Checked Out') {
+                warn.innerHTML = `<strong>This group is currently checked out</strong> to ${escapeHtml(g.assignedUser || 'someone')}${(g.projectNumber || '').trim() ? ` (${escapeHtml(g.projectNumber)})` : ''}. Deleting it will not check it in and will not add an archive record.`;
+                warn.classList.remove('hidden');
+            } else {
+                warn.classList.add('hidden');
+            }
+            document.getElementById('delete-group-modal').classList.remove('hidden');
+            document.getElementById('delete-group-cancel').focus();
+        };
+
+        window.closeDeleteGroupModal = function() {
+            pendingDeleteGroupId = null;
+            document.getElementById('delete-group-modal').classList.add('hidden');
+        };
+
+        window.confirmDeleteGroup = function() {
+            const id = pendingDeleteGroupId;
+            if (!id) return;
+            if (!requirePriv('manageGroups')) { window.closeDeleteGroupModal(); return; }
+            document.getElementById('delete-group-modal').classList.add('hidden');
+            pendingDeleteGroupId = null;
+            equipmentData = equipmentData.filter(x => x.id !== id);
+            removeGroupFromCloud(id);
+            window.refreshAllViews();
         };
 
         window.editEquipmentGroup = function(groupId) {
