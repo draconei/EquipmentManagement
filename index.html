@@ -1202,7 +1202,7 @@
     <div id="checkin-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden space-y-4 p-6">
             <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 class="font-bold text-slate-900 text-base">Equipment Group Check In</h3>
+                <h3 id="checkin-title" class="font-bold text-slate-900 text-base">Equipment Group Check In</h3>
                 <button type="button" onclick="window.closeCheckInModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <form id="checkin-form" onsubmit="window.processCheckInSubmit(event)" class="space-y-4">
@@ -1214,7 +1214,7 @@
                 </div>
                 <div class="flex items-center justify-end space-x-2 pt-2">
                     <button type="button" onclick="window.closeCheckInModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
-                    <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check In</button>
+                    <button type="submit" id="checkin-submit-btn" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Confirm Check In</button>
                 </div>
             </form>
         </div>
@@ -2601,13 +2601,40 @@
         document.addEventListener('keydown', e => { if (e.key === 'Escape') { window.closeAboutModal(); window.closePasteSerialsModal && window.closePasteSerialsModal(); window.closeDeleteGroupModal && window.closeDeleteGroupModal(); } });
 
         let openProjectName = null;
+        let projectSel = new Set();
+        let projectSelKey = null;
+
+        const projectGroupIds = () => Array.from(document.querySelectorAll('#project-modal-body .proj-sel')).map(c => c.dataset.group);
+        function updateProjectSelUI() {
+            const ids = projectGroupIds();
+            const n = ids.filter(id => projectSel.has(id)).length;
+            const all = document.getElementById('proj-sel-all');
+            if (all) { all.checked = ids.length > 0 && n === ids.length; all.indeterminate = n > 0 && n < ids.length; }
+            const cnt = document.getElementById('proj-sel-count');
+            if (cnt) cnt.textContent = n ? `${n} of ${ids.length} selected` : `${ids.length} group${ids.length === 1 ? '' : 's'} — tick the boxes to check in several at once`;
+            const btn = document.getElementById('proj-checkin-btn');
+            if (btn) { btn.disabled = n === 0; btn.innerHTML = `<i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> ${n ? `Check In Selected (${n})` : 'Check In Selected'}`; }
+        }
+        window.toggleProjectSel = function(id, on) { if (on) projectSel.add(id); else projectSel.delete(id); updateProjectSelUI(); };
+        window.toggleProjectSelAll = function(on) {
+            projectGroupIds().forEach(id => { if (on) projectSel.add(id); else projectSel.delete(id); });
+            document.querySelectorAll('#project-modal-body .proj-sel').forEach(c => { c.checked = on; });
+            updateProjectSelUI();
+        };
+        window.checkInSelectedProjectGroups = function() {
+            const ids = projectGroupIds().filter(id => projectSel.has(id));
+            if (ids.length) window.checkInGroups(ids);
+        };
         window.openProjectModal = function(project) {
             const key = String(project || '').trim().toLowerCase();
             if (!key) return;
+            if (projectSelKey !== key) { projectSel = new Set(); projectSelKey = key; }
             openProjectName = String(project).trim();
             const same = v => String(v || '').trim().toLowerCase() === key;
             const current = equipmentData.filter(g => g.status === 'Checked Out' && same(g.projectNumber))
                 .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+            const stillOut = new Set(current.map(g => g.id));
+            projectSel = new Set([...projectSel].filter(id => stillOut.has(id)));
             const past = archiveData.filter(r => same(r.projectNumber))
                 .sort((a, b) => (b.checkedInDate || '').localeCompare(a.checkedInDate || '') || (b.id || '').localeCompare(a.id || ''));
             const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -2622,13 +2649,13 @@
                 const late = !isLost(g) && due && due < today ? Math.round((today - due) / dayMs) : 0;
                 const daysOut = g.checkedOutDate ? Math.max(1, Math.round((today - new Date(g.checkedOutDate + 'T00:00:00')) / dayMs)) : null;
                 return `<tr class="${isLost(g) ? 'bg-orange-50' : late ? 'bg-rose-50' : (isPermanent(g) ? 'bg-sky-50' : '')}">
+                    <td class="px-3 py-2.5 w-8" data-priv="checkout"><input type="checkbox" class="proj-sel w-4 h-4 rounded border-slate-300 text-emerald-600 cursor-pointer" data-group="${escapeHtml(g.id)}" ${projectSel.has(g.id) ? 'checked' : ''} onchange="window.toggleProjectSel(this.dataset.group, this.checked)" aria-label="Select ${escapeHtml(g.id)} for check in"></td>
                     <td class="px-3 py-2.5">${gl(g.id)}<div class="text-[11px] text-slate-400">${escapeHtml(g.category) || 'General Equipment'} · ${g.serials ? g.serials.length : 0} serials</div></td>
                     <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHtml(g.assignedUser) || 'Unassigned'}</td>
                     <td class="px-3 py-2.5">${mono(g.checkedOutDate)}</td>
                     <td class="px-3 py-2.5 text-center font-mono font-bold">${daysOut ?? '—'}</td>
                     <td class="px-3 py-2.5">${isPermanent(g) ? mono('Permanent') : mono(g.returnDueDate)}</td>
                     <td class="px-3 py-2.5">${isLost(g) ? '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">N/A</span>' : late ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">${late}d overdue</span>` : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">On schedule</span>'}</td>
-                    <td class="px-3 py-2.5 text-right" data-priv="checkout"><button type="button" data-group="${escapeHtml(g.id)}" onclick="window.checkInGroup(this.dataset.group)" title="Check in ${escapeHtml(g.id)}" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm whitespace-nowrap"><i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> Check In</button></td>
                 </tr>`;
             }).join('');
 
@@ -2650,9 +2677,13 @@
                     <div class="flex items-center space-x-2 text-amber-600"><i class="fa-solid fa-hand-holding"></i><h4 class="font-bold text-slate-800 text-sm">Currently Assigned Groups <span class="ml-1 px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] rounded-full">${current.length}</span></h4></div>
                     ${current.length === 0 ? wrap(empty('No groups are currently checked out to this project.')) : wrap(`
                     <table class="w-full text-left border-collapse text-sm">
-                        <thead class="${head}"><tr>${th('Group')}${th('Checked Out To')}${th('Checked Out')}${th('Days Out', 'text-center')}${th('Return By')}${th('Status')}<th class="px-3 py-2.5 text-right" data-priv="checkout">Action</th></tr></thead>
+                        <thead class="${head}"><tr><th class="px-3 py-2.5 w-8" data-priv="checkout"><input type="checkbox" id="proj-sel-all" class="w-4 h-4 rounded border-slate-300 text-emerald-600 cursor-pointer" onchange="window.toggleProjectSelAll(this.checked)" title="Select all" aria-label="Select all groups"></th>${th('Group')}${th('Checked Out To')}${th('Checked Out')}${th('Days Out', 'text-center')}${th('Return By')}${th('Status')}</tr></thead>
                         <tbody class="divide-y divide-slate-100">${currentRows}</tbody>
                     </table>`)}
+                    ${current.length === 0 ? '' : `<div class="flex items-center justify-between gap-3 pt-1" data-priv="checkout">
+                        <span id="proj-sel-count" class="text-xs font-semibold text-slate-500"></span>
+                        <button type="button" id="proj-checkin-btn" onclick="window.checkInSelectedProjectGroups()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-semibold shadow-sm whitespace-nowrap"><i class="fa-solid fa-arrow-right-to-bracket mr-1"></i> Check In Selected</button>
+                    </div>`}
                 </section>
                 <section class="space-y-2">
                     <div class="flex items-center space-x-2 text-purple-600"><i class="fa-solid fa-box-archive"></i><h4 class="font-bold text-slate-800 text-sm">Archive: Previously Checked Out <span class="ml-1 px-2 py-0.5 bg-purple-100 text-purple-800 text-[11px] rounded-full">${past.length}</span></h4></div>
@@ -2662,6 +2693,7 @@
                         <tbody class="divide-y divide-slate-100">${pastRows}</tbody>
                     </table>`)}
                 </section>`;
+            updateProjectSelUI();
             document.getElementById('project-modal').classList.remove('hidden');
         };
 
@@ -3209,10 +3241,33 @@
             }
         };
 
+        let pendingCheckInIds = [];
+        window.checkInGroups = function(ids) {
+            if (!requirePriv('checkout')) return;
+            const groups = ids.map(id => equipmentData.find(g => g.id === id)).filter(Boolean);
+            if (!groups.length) return;
+            if (groups.length === 1) return window.checkInGroup(groups[0].id);
+            pendingCheckInIds = groups.map(g => g.id);
+            document.getElementById('checkin-group-id').value = '';
+            document.getElementById('checkin-title').textContent = `Check In ${groups.length} Groups`;
+            document.getElementById('checkin-submit-btn').textContent = `Confirm Check In (${groups.length})`;
+            document.getElementById('checkin-group-summary').innerHTML =
+                `<div class="font-semibold mb-1">These ${groups.length} groups will all be checked in to the same location:</div>` +
+                `<div class="max-h-32 overflow-y-auto space-y-0.5">` + groups.map(g => `<div><span class="font-mono font-bold text-blue-600">${escapeHtml(g.id)}</span> <span class="text-slate-500">· ${escapeHtml(g.category) || 'General Equipment'} · ${escapeHtml(g.assignedUser) || 'Unassigned'}</span></div>`).join('') + `</div>`;
+            const sel = document.getElementById('checkin-location');
+            sel.innerHTML = '<option value="" disabled selected>Select a location...</option>' +
+                SHOP_LOCATIONS.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+            document.getElementById('checkin-modal').classList.remove('hidden');
+            sel.focus();
+        };
+
         window.checkInGroup = function(groupId) {
             if (!requirePriv('checkout')) return;
             const group = equipmentData.find(g => g.id === groupId);
             if (!group) return;
+            pendingCheckInIds = [group.id];
+            document.getElementById('checkin-title').textContent = 'Equipment Group Check In';
+            document.getElementById('checkin-submit-btn').textContent = 'Confirm Check In';
             document.getElementById('checkin-group-id').value = group.id;
             document.getElementById('checkin-group-summary').innerHTML =
                 `<span class="font-mono font-bold text-blue-600">${escapeHtml(group.id)}</span> · ${escapeHtml(group.category) || 'General Equipment'}` +
@@ -3225,6 +3280,7 @@
         };
 
         window.closeCheckInModal = function() {
+            pendingCheckInIds = [];
             document.getElementById('checkin-modal')?.classList.add('hidden');
         };
 
@@ -3233,8 +3289,10 @@
             event.preventDefault();
             const location = document.getElementById('checkin-location').value;
             if (!SHOP_LOCATIONS.includes(location)) return;
-            finalizeCheckIn(document.getElementById('checkin-group-id').value, location);
+            const ids = pendingCheckInIds.length ? pendingCheckInIds.slice() : [document.getElementById('checkin-group-id').value];
+            pendingCheckInIds = [];
             window.closeCheckInModal();
+            ids.forEach(id => finalizeCheckIn(id, location));
         };
 
         function finalizeCheckIn(groupId, location) {
