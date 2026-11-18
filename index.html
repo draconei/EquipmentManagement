@@ -524,7 +524,7 @@
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
                     <div>
                         <h2 class="text-2xl font-bold text-slate-900 tracking-tight" id="group-form-heading">Group Management</h2>
-                        <p class="text-sm text-slate-500">Configure equipment group identifier and assign up to 16 serial numbers via manual input or camera OCR.</p>
+                        <p class="text-sm text-slate-500">Configure equipment group identifier and add serial numbers by typing, pasting a screenshot, or camera OCR.</p>
                     </div>
                 </div>
 
@@ -546,8 +546,12 @@
                                 <input type="text" id="group-input-category" placeholder="e.g., Heavy Lifting, Sensors" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 mb-1">Calibration Due Date *</label>
-                                <input type="date" id="group-input-calib" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Calibration Due Date <span id="group-calib-star">*</span></label>
+                                <input type="date" id="group-input-calib" required class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400">
+                                <label class="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                                    <input type="checkbox" id="group-input-calib-na" onchange="window.onCalibNAToggle()" class="w-4 h-4 rounded border-slate-300 text-blue-600">
+                                    <span>Calibration not required for this group (shows N/A)</span>
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -557,11 +561,15 @@
                             <div>
                                 <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
                                     <i class="fa-solid fa-barcode text-emerald-600"></i>
-                                    <span>2. Individual Serial Numbers (Max 16)</span>
+                                    <span>2. Individual Serial Numbers (Max <span class="serial-cap-label">100</span>)</span>
                                 </h3>
-                                <p class="text-xs text-slate-500">Scan serial tags directly using your camera or upload photo plates.</p>
+                                <p class="text-xs text-slate-500">Paste a screenshot (Ctrl+V) of serial numbers, scan tags with your camera, or type them in.</p>
                             </div>
                             <div class="flex items-center space-x-2">
+                                <button type="button" onclick="window.openPasteSerialsModal()" class="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
+                                    <i class="fa-solid fa-image"></i>
+                                    <span>Paste Screenshot</span>
+                                </button>
                                 <button type="button" onclick="window.openOcrCameraModal()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition">
                                     <i class="fa-solid fa-camera"></i>
                                     <span>Camera OCR Scan</span>
@@ -1281,6 +1289,36 @@
                     <input type="file" accept="image/*" class="hidden" onchange="window.handleOcrPhotoUpload(event)">
                 </label>
                 <button onclick="window.captureAndProcessOcrFrame()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm">Capture & Read Text</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: PASTE SERIAL SCREENSHOT -->
+    <div id="paste-serials-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-xl p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base"><i class="fa-solid fa-image text-violet-600 mr-2"></i>Add Serial Numbers from Screenshot</h3>
+                <button type="button" onclick="window.closePasteSerialsModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="ps-drop" class="border-2 border-dashed border-violet-300 bg-violet-50 rounded-xl p-5 text-center text-xs text-slate-600">
+                <p class="font-semibold text-slate-700 mb-1">Press <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded">Ctrl</kbd> + <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded">V</kbd> to paste a screenshot, or drop an image here</p>
+                <label class="inline-block mt-2 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer font-semibold">
+                    <i class="fa-solid fa-upload mr-1"></i> Choose image file
+                    <input type="file" id="ps-file" accept="image/*" multiple class="hidden" onchange="window.handlePasteSerialsFiles(this.files); this.value='';">
+                </label>
+            </div>
+            <div id="ps-status" class="text-xs font-semibold text-slate-500 min-h-[18px]"></div>
+            <div id="ps-results" class="hidden space-y-2">
+                <div class="flex items-center justify-between">
+                    <p class="text-xs font-bold text-slate-700">Review before adding <span id="ps-count" class="font-normal text-slate-500"></span></p>
+                    <button type="button" onclick="window.addPsManualRow()" class="text-[11px] font-semibold text-blue-600 hover:underline"><i class="fa-solid fa-plus mr-1"></i>Add a missed serial</button>
+                </div>
+                <p class="text-[11px] text-slate-500">Text recognition can misread characters. Check each serial against your screenshot and fix any that are wrong. Amber = looks suspicious. Partial serials ending in "..." are skipped.</p>
+                <div id="ps-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1"></div>
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onclick="window.closePasteSerialsModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                <button type="button" id="ps-add-btn" onclick="window.confirmPasteSerials()" disabled class="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold shadow-sm">Add to Group</button>
             </div>
         </div>
     </div>
@@ -2051,7 +2089,7 @@
             const today = new Date();
             today.setHours(0,0,0,0);
             const count = equipmentData.filter(g => {
-                if (isLost(g) || !g.calibrationDueDate) return false;
+                if (isCalExempt(g) || !g.calibrationDueDate) return false;
                 const calibDate = new Date(g.calibrationDueDate + 'T00:00:00');
                 return Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) <= 30;
             }).length;
@@ -2069,7 +2107,7 @@
             const available = totalGroups - checkedOut;
 
             const urgentCalib = equipmentData.filter(g => {
-                if (isLost(g) || !g.calibrationDueDate) return false;
+                if (isCalExempt(g) || !g.calibrationDueDate) return false;
                 return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
             }).length;
 
@@ -2089,7 +2127,7 @@
             if (tbody) {
                 tbody.innerHTML = '';
                 equipmentData.slice(0, 5).forEach(g => {
-                    const calibState = isLost(g) ? NA_STATE : getCalibStatus(g.calibrationDueDate);
+                    const calibState = calStateOf(g);
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td class="py-2.5 px-2 font-mono font-bold text-xs text-blue-600">${escapeHtml(g.id)}</td>
@@ -2106,7 +2144,7 @@
             if (alertList) {
                 alertList.innerHTML = '';
                 const urgentItems = equipmentData.filter(g => {
-                    if (isLost(g) || !g.calibrationDueDate) return false;
+                    if (isCalExempt(g) || !g.calibrationDueDate) return false;
                     return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
                 });
                 if (urgentItems.length === 0) {
@@ -2145,7 +2183,7 @@
                     const d = g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
                     return d && d < todayMid ? Math.round((todayMid - d) / 86400000) : 0;
                 }
-                case 'calib': return isLost(g) ? null : (g.calibrationDueDate || null);
+                case 'calib': return isCalExempt(g) ? null : (g.calibrationDueDate || null);
                 case 'notes': return (g.notes || '').trim() ? 1 : 0;
             }
             return '';
@@ -2220,8 +2258,9 @@
             const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
             filtered.forEach(g => {
                 const lostG = isLost(g);
-                const calibState = lostG ? NA_STATE : getCalibStatus(g.calibrationDueDate);
-                const calDays = (!lostG && g.calibrationDueDate) ? Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - todayMid) / 86400000) : null;
+                const calEx = isCalExempt(g);
+                const calibState = calStateOf(g);
+                const calDays = (!calEx && g.calibrationDueDate) ? Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - todayMid) / 86400000) : null;
                 const retDate = g.status === 'Checked Out' && g.returnDueDate ? new Date(g.returnDueDate + 'T00:00:00') : null;
                 const daysLate = (!lostG && retDate && retDate < todayMid) ? Math.round((todayMid - retDate) / 86400000) : 0;
                 const isOverdue = daysLate > 0;
@@ -2249,7 +2288,7 @@
                             ? `<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-600 text-white">Yes · ${daysLate}d overdue</span>`
                             : '<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">No</span>'}
                     </td>
-                    <td class="px-4 py-3"><span title="${lostG ? 'Not applicable: group is lost' : calDays === null ? 'No calibration date set' : `Calibration due ${escapeHtml(g.calibrationDueDate)}${calDays < 0 ? ` (${Math.abs(calDays)} days overdue)` : ''}`}" class="inline-block min-w-[2.5rem] text-center px-2.5 py-1 text-xs font-bold font-mono rounded-full border ${calibState.class}">${lostG ? 'N/A' : calDays === null ? '—' : calDays}</span></td>
+                    <td class="px-4 py-3"><span title="${lostG ? 'Not applicable: group is lost' : calEx ? 'Calibration not required' : calDays === null ? 'No calibration date set' : `Calibration due ${escapeHtml(g.calibrationDueDate)}${calDays < 0 ? ` (${Math.abs(calDays)} days overdue)` : ''}`}" class="inline-block min-w-[2.5rem] text-center px-2.5 py-1 text-xs font-bold font-mono rounded-full border ${calibState.class}">${calEx ? 'N/A' : calDays === null ? '—' : calDays}</span></td>
                     <td class="px-4 py-3">
                         ${(g.notes || '').trim()
                             ? `<span title="${escapeHtml((g.notes || '').trim().slice(0, 200))}" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-sky-100 text-sky-800 cursor-help">Yes</span>`
@@ -2280,6 +2319,7 @@
         window.resetGroupForm = function() {
             const form = document.getElementById('group-editor-form');
             if (form) form.reset();
+            window.onCalibNAToggle();
             const origId = document.getElementById('edit-group-original-id');
             if (origId) origId.value = '';
             const heading = document.getElementById('group-form-heading');
@@ -2291,22 +2331,266 @@
             window.addSerialInputRow('');
         };
 
-        window.addSerialInputRow = function(value = '') {
+        const MAX_SERIALS = 100; // Firestore rules allow up to 500
+        const renumberSerialRows = () => {
+            document.querySelectorAll('#serial-rows-container > div > span').forEach((sp, i) => { sp.textContent = '#' + (i + 1); });
+        };
+        window.addSerialInputRow = function(value = '', silent = false) {
             const container = document.getElementById('serial-rows-container');
-            if (!container) return;
-            const currentRows = container.children.length;
-            if (currentRows >= 16) { alert("Maximum limit of 16 serial numbers per group reached."); return; }
-
-            const index = currentRows + 1;
+            if (!container) return false;
+            if (container.children.length >= MAX_SERIALS) {
+                if (!silent) alert(`Maximum limit of ${MAX_SERIALS} serial numbers per group reached.`);
+                return false;
+            }
             const div = document.createElement('div');
             div.className = "flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-200";
             div.innerHTML = `
-                <span class="text-[10px] font-bold text-slate-400 font-mono w-5">#${index}</span>
-                <input type="text" name="serialId[]" value="${value}" placeholder="Serial Number S/N" class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-emerald-500 outline-none">
-                <button type="button" onclick="this.parentElement.remove()" class="p-1.5 text-slate-400 hover:text-rose-600 text-xs"><i class="fa-solid fa-trash"></i></button>
+                <span class="text-[10px] font-bold text-slate-400 font-mono w-7"></span>
+                <input type="text" name="serialId[]" placeholder="Serial Number S/N" class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-emerald-500 outline-none">
+                <button type="button" class="p-1.5 text-slate-400 hover:text-rose-600 text-xs"><i class="fa-solid fa-trash"></i></button>
             `;
+            div.querySelector('input').value = value;
+            div.querySelector('button').onclick = () => { div.remove(); renumberSerialRows(); };
             container.appendChild(div);
+            renumberSerialRows();
+            return true;
         };
+
+        // ---------- Paste screenshot of serial numbers ----------
+        let psItems = []; // {value, status:'new'|'dup'|'other', include, suspect, otherGroup}
+        let psBusy = false;
+
+        const normSerial = (v) => String(v || '').trim().toUpperCase();
+
+        // Pure parser: OCR text -> candidate serial strings
+        window.parseSerialsFromText = function(text) {
+            const knownIds = new Set(equipmentData.map(g => g.id.toUpperCase()));
+            const out = [];
+            const seen = new Set();
+            const raw = String(text || '').replace(/[\u2026]/g, '...').split(/[\s,;|]+/);
+            for (let t of raw) {
+                if (!t) continue;
+                if (/\.\.\./.test(t)) continue;                          // partial serial, e.g. 821...
+                t = t.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');       // strip edge punctuation
+                if (!t) continue;
+                let parts = [t];
+                if (/^\d{4,}(\/\d{4,})+$/.test(t)) parts = t.split('/');  // 1945211/1923822
+                for (let p of parts) {
+                    p = p.toUpperCase();
+                    if (p.length < 4 || p.length > 40) continue;
+                    if (!/^[A-Z0-9][A-Z0-9\-\/_.]*[A-Z0-9]$/.test(p)) continue;
+                    if (!/\d/.test(p)) continue;
+                    if (knownIds.has(p)) continue;
+                    if (/^\d{1,4}-[A-Z]/.test(p)) continue;                  // group id such as 359-TIME-TX
+                    if (/-(TX|NH)$/.test(p)) continue;
+                    if (/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}$/.test(p)) continue; // date
+                    if (/^\d{1,2}:\d{2}/.test(p)) continue;                // time
+                    if (seen.has(p)) continue;
+                    seen.add(p);
+                    out.push(p);
+                }
+            }
+            return out;
+        };
+
+        const psSerialsInEditor = () => Array.from(document.querySelectorAll('#serial-rows-container input[name="serialId[]"]'))
+            .map(i => normSerial(i.value)).filter(Boolean);
+
+        const psClassify = (value) => {
+            const inEditor = new Set(psSerialsInEditor());
+            const editingId = document.getElementById('edit-group-original-id')?.value || '';
+            const typedId = normSerial(document.getElementById('group-input-id')?.value);
+            const v = normSerial(value);
+            // letters mixed into an otherwise numeric serial are the usual OCR slip (O/0, I/1, S/5 ...)
+            const suspect = /^[0-9]+$/.test(v.replace(/[A-Z]/g, '')) && /[A-Z]/.test(v) && /^\d/.test(v) && /\d$/.test(v) && /[OIlSBZ]/.test(v) && (v.replace(/[^A-Z]/g, '').length <= 2);
+            let status = 'new', otherGroup = '';
+            if (inEditor.has(v)) status = 'dup';
+            else {
+                const other = equipmentData.find(g => g.id !== editingId && g.id.toUpperCase() !== typedId && (g.serials || []).some(x => normSerial(x.serialId) === v));
+                if (other) { status = 'other'; otherGroup = other.id; }
+            }
+            return { status, suspect, otherGroup };
+        };
+
+        const psRender = () => {
+            const list = document.getElementById('ps-list');
+            const res = document.getElementById('ps-results');
+            if (!list) return;
+            res.classList.toggle('hidden', psItems.length === 0);
+            list.innerHTML = '';
+            psItems.forEach((it, i) => {
+                const meta = psClassify(it.value);
+                it.status = meta.status; it.suspect = meta.suspect; it.otherGroup = meta.otherGroup;
+                const row = document.createElement('div');
+                const tone = it.status === 'dup' ? 'bg-slate-100 border-slate-300' : (it.suspect ? 'bg-amber-50 border-amber-300' : (it.status === 'other' ? 'bg-orange-50 border-orange-300' : 'bg-white border-slate-200'));
+                row.className = `p-2 rounded-xl border ${tone} space-y-1`;
+                row.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" class="ps-inc" ${it.include ? 'checked' : ''}>
+                        <input type="text" class="ps-val flex-1 px-2 py-1 border border-slate-200 rounded-lg text-xs font-mono uppercase bg-white outline-none focus:ring-2 focus:ring-violet-500">
+                        <button type="button" class="ps-del p-1 text-slate-400 hover:text-rose-600 text-xs" title="Remove"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                    <div class="text-[10px] font-semibold ps-note pl-6"></div>`;
+                const note = row.querySelector('.ps-note');
+                const msgs = [];
+                if (it.status === 'dup') msgs.push('<span class="text-slate-500">Already in this group</span>');
+                if (it.status === 'other') msgs.push(`<span class="text-orange-700">Also in group ${escapeHtmlPs(it.otherGroup)}</span>`);
+                if (it.suspect) msgs.push('<span class="text-amber-700">Check for misread characters</span>');
+                note.innerHTML = msgs.join(' · ');
+                const val = row.querySelector('.ps-val');
+                val.value = it.value;
+                val.onchange = () => { it.value = normSerial(val.value); psRender(); };
+                row.querySelector('.ps-inc').onchange = (e) => { it.include = e.target.checked; psUpdateCount(); };
+                row.querySelector('.ps-del').onclick = () => { psItems.splice(i, 1); psRender(); };
+                list.appendChild(row);
+            });
+            psUpdateCount();
+        };
+
+        const escapeHtmlPs = (x) => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        const psUpdateCount = () => {
+            const n = psItems.filter(i => i.include && normSerial(i.value)).length;
+            const c = document.getElementById('ps-count');
+            if (c) c.textContent = `— ${psItems.length} found, ${n} selected`;
+            const b = document.getElementById('ps-add-btn');
+            if (b) { b.disabled = n === 0 || psBusy; b.textContent = n ? `Add ${n} to Group` : 'Add to Group'; }
+        };
+
+        const psSetStatus = (msg, isErr) => {
+            const el = document.getElementById('ps-status');
+            if (el) { el.textContent = msg || ''; el.className = 'text-xs font-semibold min-h-[18px] ' + (isErr ? 'text-rose-600' : 'text-slate-500'); }
+        };
+
+        window.addPsManualRow = function() {
+            psItems.push({ value: '', include: true });
+            psRender();
+            const vals = document.querySelectorAll('#ps-list .ps-val');
+            if (vals.length) vals[vals.length - 1].focus();
+        };
+
+        // Upscale + grayscale + contrast to help small screenshot text
+        const psPreprocess = (src) => new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const longest = Math.max(img.width, img.height);
+                    const scale = Math.min(3, Math.max(1, 2400 / longest));
+                    const c = document.createElement('canvas');
+                    c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+                    const ctx = c.getContext('2d');
+                    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+                    ctx.drawImage(img, 0, 0, c.width, c.height);
+                    const d = ctx.getImageData(0, 0, c.width, c.height);
+                    const px = d.data;
+                    for (let i = 0; i < px.length; i += 4) {
+                        let g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+                        g = Math.max(0, Math.min(255, (g - 128) * 1.4 + 128));
+                        px[i] = px[i + 1] = px[i + 2] = g;
+                    }
+                    ctx.putImageData(d, 0, 0);
+                    resolve(c.toDataURL('image/png'));
+                } catch (e) { resolve(src); }
+            };
+            img.onerror = () => resolve(src);
+            img.src = src;
+        });
+
+        const psReadFile = (file) => new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.onerror = () => reject(r.error);
+            r.readAsDataURL(file);
+        });
+
+        window.handlePasteSerialsFiles = async function(files) {
+            const imgs = Array.from(files || []).filter(f => f && /^image\//.test(f.type));
+            if (!imgs.length) { psSetStatus('That file is not an image.', true); return; }
+            if (psBusy) { psSetStatus('Still reading the previous image — please wait.', true); return; }
+            if (typeof Tesseract === 'undefined') {
+                psSetStatus('The text-recognition library could not load. Check your internet connection and reload the page.', true);
+                return;
+            }
+            psBusy = true; psUpdateCount();
+            try {
+                for (let n = 0; n < imgs.length; n++) {
+                    const label = imgs.length > 1 ? ` (image ${n + 1} of ${imgs.length})` : '';
+                    psSetStatus('Preparing image' + label + '…');
+                    const src = await psPreprocess(await psReadFile(imgs[n]));
+                    psSetStatus('Reading text' + label + '… the first time can take a little longer while the reader downloads.');
+                    const result = await Tesseract.recognize(src, 'eng', {
+                        logger: m => { if (m && m.status === 'recognizing text') psSetStatus(`Reading text${label}… ${Math.round((m.progress || 0) * 100)}%`); }
+                    });
+                    const found = window.parseSerialsFromText(result && result.data ? result.data.text : '');
+                    let added = 0;
+                    found.forEach(v => {
+                        if (!psItems.some(i => normSerial(i.value) === v)) { psItems.push({ value: v, include: true }); added++; }
+                    });
+                    // default: skip ones already in the group
+                    psItems.forEach(it => { if (psClassify(it.value).status === 'dup') it.include = false; });
+                    psRender();
+                    psSetStatus(added ? `Found ${added} serial number${added === 1 ? '' : 's'}${label}. Paste another screenshot to add more.` : 'No new serial numbers were recognized in that image.' + label, !added);
+                }
+            } catch (err) {
+                console.error(err);
+                psSetStatus('Could not read that image. Try a sharper or larger screenshot.', true);
+            } finally {
+                psBusy = false; psUpdateCount();
+            }
+        };
+
+        window.openPasteSerialsModal = function() {
+            if (!requirePriv('manageGroups')) return;
+            psItems = [];
+            psSetStatus('');
+            psRender();
+            document.getElementById('paste-serials-modal')?.classList.remove('hidden');
+        };
+        window.closePasteSerialsModal = function() {
+            document.getElementById('paste-serials-modal')?.classList.add('hidden');
+        };
+
+        window.confirmPasteSerials = function() {
+            const chosen = [];
+            psItems.forEach(it => { const v = normSerial(it.value); if (it.include && v && !chosen.includes(v)) chosen.push(v); });
+            if (!chosen.length) return;
+            const container = document.getElementById('serial-rows-container');
+            const inputs = () => Array.from(container.querySelectorAll('input[name="serialId[]"]'));
+            const existing = new Set(psSerialsInEditor());
+            let added = 0, skipped = 0;
+            chosen.forEach(v => {
+                if (existing.has(v)) { skipped++; return; }
+                const empty = inputs().find(i => !i.value.trim());
+                if (empty) { empty.value = v; existing.add(v); added++; return; }
+                if (window.addSerialInputRow(v, true)) { existing.add(v); added++; } else skipped++;
+            });
+            window.closePasteSerialsModal();
+            if (skipped && !added) alert(`Nothing was added. Serial numbers already present or the ${MAX_SERIALS}-serial limit was reached.`);
+            else if (skipped) alert(`${added} added. ${skipped} skipped (duplicates or the ${MAX_SERIALS}-serial limit).`);
+            container.scrollTop = container.scrollHeight;
+        };
+
+        // Ctrl+V anywhere on the group editor / paste modal
+        document.addEventListener('paste', (e) => {
+            const modal = document.getElementById('paste-serials-modal');
+            const modalOpen = modal && !modal.classList.contains('hidden');
+            const editor = document.getElementById('view-create-group');
+            const editorOpen = editor && !editor.classList.contains('hidden');
+            if (!modalOpen && !editorOpen) return;
+            const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter(f => /^image\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            if (!modalOpen) window.openPasteSerialsModal();
+            window.handlePasteSerialsFiles(files);
+        });
+        document.addEventListener('dragover', (e) => {
+            const modal = document.getElementById('paste-serials-modal');
+            if (modal && !modal.classList.contains('hidden')) e.preventDefault();
+        });
+        document.addEventListener('drop', (e) => {
+            const modal = document.getElementById('paste-serials-modal');
+            if (modal && !modal.classList.contains('hidden')) { e.preventDefault(); window.handlePasteSerialsFiles(e.dataTransfer && e.dataTransfer.files); }
+        });
 
         window.openAboutModal = function() {
             document.getElementById('about-modal')?.classList.remove('hidden');
@@ -2314,7 +2598,7 @@
         window.closeAboutModal = function() {
             document.getElementById('about-modal')?.classList.add('hidden');
         };
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') { window.closeAboutModal(); window.closeDeleteGroupModal && window.closeDeleteGroupModal(); } });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { window.closeAboutModal(); window.closePasteSerialsModal && window.closePasteSerialsModal(); window.closeDeleteGroupModal && window.closeDeleteGroupModal(); } });
 
         let openProjectName = null;
         window.openProjectModal = function(project) {
@@ -2471,6 +2755,8 @@
             if (inputCat) inputCat.value = group.category || '';
             const inputCal = document.getElementById('group-input-calib');
             if (inputCal) inputCal.value = group.calibrationDueDate || '';
+            const naBox = document.getElementById('group-input-calib-na');
+            if (naBox) { naBox.checked = group.calibrationNA === true; window.onCalibNAToggle(); }
 
             const container = document.getElementById('serial-rows-container');
             if (container) container.innerHTML = '';
@@ -2487,7 +2773,8 @@
             const originalId = document.getElementById('edit-group-original-id')?.value;
             const newId = document.getElementById('group-input-id')?.value.trim().toUpperCase();
             const category = document.getElementById('group-input-category')?.value.trim();
-            const calibDate = document.getElementById('group-input-calib')?.value;
+            const calibNA = !!document.getElementById('group-input-calib-na')?.checked;
+            const calibDate = calibNA ? '' : document.getElementById('group-input-calib')?.value;
 
             const serialInputs = document.querySelectorAll('#serial-rows-container input[name="serialId[]"]');
             const serials = [];
@@ -2501,13 +2788,13 @@
             if (originalId) {
                 const index = equipmentData.findIndex(g => g.id === originalId);
                 if (index !== -1) {
-                    groupObj = { ...equipmentData[index], id: newId, category, calibrationDueDate: calibDate, serials };
+                    groupObj = { ...equipmentData[index], id: newId, category, calibrationDueDate: calibDate, calibrationNA: calibNA, serials };
                     equipmentData[index] = groupObj;
                     if (originalId !== newId) removeGroupFromCloud(originalId);
                 }
             } else {
                 if (equipmentData.some(g => g.id === newId)) { alert("Group ID already exists! Please use a unique identifier."); return; }
-                groupObj = { id: newId, category, calibrationDueDate: calibDate, status: "Available", assignedUser: "", projectNumber: "", returnDueDate: "", serials };
+                groupObj = { id: newId, category, calibrationDueDate: calibDate, calibrationNA: calibNA, status: "Available", assignedUser: "", projectNumber: "", returnDueDate: "", serials };
                 equipmentData.push(groupObj);
             }
 
@@ -2648,9 +2935,9 @@
 
             equipmentData.forEach(g => {
                 const calibDate = g.calibrationDueDate ? new Date(g.calibrationDueDate + 'T00:00:00') : null;
-                const lostG = isLost(g);
+                const lostG = isCalExempt(g);
                 const diffDays = (calibDate && !lostG) ? Math.ceil((calibDate - today) / (1000 * 60 * 60 * 24)) : 999;
-                const calibState = lostG ? NA_STATE : getCalibStatus(g.calibrationDueDate);
+                const calibState = calStateOf(g);
 
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50";
@@ -2663,7 +2950,7 @@
                     </td>
                     <td class="px-4 py-3"><span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${calibState.class}">${calibState.text}</span></td>
                     <td class="px-4 py-3 text-right">
-                        <button data-id="${escapeHtml(g.id)}" onclick="window.quickRecalibrate(this.dataset.id)" data-priv="manageGroups" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">+1 Year Renew</button>
+                        ${g.calibrationNA === true ? '<span class="text-xs text-slate-400">Not required</span>' : `<button data-id="${escapeHtml(g.id)}" onclick="window.quickRecalibrate(this.dataset.id)" data-priv="manageGroups" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition">+1 Year Renew</button>`}
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -2673,7 +2960,7 @@
         window.quickRecalibrate = function(groupId) {
             if (!requirePriv('manageGroups')) return;
             const group = equipmentData.find(g => g.id === groupId);
-            if (!group) return;
+            if (!group || group.calibrationNA === true) return;
             const nextYear = new Date();
             nextYear.setFullYear(nextYear.getFullYear() + 1);
             group.calibrationDueDate = nextYear.toISOString().split('T')[0];
@@ -2690,6 +2977,20 @@
         function isLost(g) {
             return !!g && g.status === 'Checked Out' && String(g.projectNumber || '').trim().toLowerCase() === 'lost';
         }
+        // Groups can be marked "calibration not required" (calibrationNA); lost groups are also exempt.
+        function isCalExempt(g) { return !!g && (g.calibrationNA === true || isLost(g)); }
+        const NOCAL_STATE = { text: 'N/A', class: 'bg-slate-100 text-slate-600 border-slate-300' };
+        function calStateOf(g) { return isLost(g) ? NA_STATE : (g.calibrationNA === true ? NOCAL_STATE : getCalibStatus(g.calibrationDueDate)); }
+        window.onCalibNAToggle = function() {
+            const na = document.getElementById('group-input-calib-na')?.checked;
+            const inp = document.getElementById('group-input-calib');
+            if (!inp) return;
+            inp.disabled = !!na;
+            inp.required = !na;
+            if (na) inp.value = '';
+            const star = document.getElementById('group-calib-star');
+            if (star) star.style.display = na ? 'none' : '';
+        };
         const NA_STATE = { text: 'N/A', class: 'bg-orange-100 text-orange-800 border-orange-300' };
         const PERM_BADGE = '<span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-indigo-100 text-indigo-800">Permanent</span>';
         let savedProjectBeforePermanent = '';
@@ -3157,7 +3458,7 @@
             tbody.innerHTML = '';
             const today = new Date(); today.setHours(0,0,0,0);
             const urgentItems = equipmentData.filter(g => {
-                if (isLost(g) || !g.calibrationDueDate) return false;
+                if (isCalExempt(g) || !g.calibrationDueDate) return false;
                 return Math.ceil((new Date(g.calibrationDueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24)) <= 30;
             });
             if (urgentItems.length === 0) {
@@ -3279,7 +3580,7 @@
             let csvContent = "data:text/csv;charset=utf-8,";
             if (reportKey === 'calib-due') {
                 csvContent += "Group ID,Category,Serial Count,Calibration Due,Status\n";
-                equipmentData.forEach(g => { csvContent += `"${g.id}","${g.category || ''}",${g.serials ? g.serials.length : 0},"${g.calibrationDueDate || ''}","${g.status}"\n`; });
+                equipmentData.forEach(g => { csvContent += `"${g.id}","${g.category || ''}",${g.serials ? g.serials.length : 0},"${g.calibrationNA === true ? 'N/A' : (g.calibrationDueDate || '')}","${g.status}"\n`; });
             } else if (reportKey === 'assignments') {
                 csvContent += "Group ID,Assigned Tech,Project Location,Return Due,Serial Count\n";
                 equipmentData.filter(g => g.status === 'Checked Out').forEach(g => {
@@ -3324,7 +3625,7 @@
             const techHtml = g => g.status === 'Checked Out' ? `<span class="font-semibold text-slate-800">${escapeHtml(tech(g))}</span>` : '<span class="text-slate-300">—</span>';
             const daysOutOf = g => g.checkedOutDate ? Math.max(1, daysBetween(today, parse(g.checkedOutDate))) : null;
             const daysLateOf = g => { if (isLost(g)) return 0; const d = parse(g.returnDueDate); return d && d < today ? daysBetween(today, d) : 0; };
-            const calibDiff = g => (isLost(g) || !g.calibrationDueDate) ? null : daysBetween(parse(g.calibrationDueDate), today);
+            const calibDiff = g => (isCalExempt(g) || !g.calibrationDueDate) ? null : daysBetween(parse(g.calibrationDueDate), today);
             const out = equipmentData.filter(g => g.status === 'Checked Out');
             const dash = '—';
             const C = (label, cls = '') => ({ label, cls });
@@ -3396,7 +3697,7 @@
                 empty: 'No equipment groups have been created yet.',
                 summary: [['Total Groups', list.length], ['Total Serials', serialTotal], ['Available', list.length - out.length], ['Checked Out', out.length]],
                 rows: list.map(g => {
-                    const st = getCalibStatus(g.calibrationDueDate);
+                    const st = calStateOf(g);
                     const serials = (g.serials || []).map(x => x.serialId);
                     return {
                         cells: [groupLink(g.id), escapeHtml(g.category) || 'General Equipment',
@@ -3404,7 +3705,7 @@
                                 g.status === 'Checked Out' ? pill('Checked Out', 'bg-amber-100 text-amber-800') : pill('Available', 'bg-emerald-100 text-emerald-800'),
                                 locHtml(g), techHtml(g),
                                 `<span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${st.class}">${escapeHtml(st.text)}</span>`],
-                        csv: [g.id, g.category || '', serials.join('; '), g.status, loc(g), tech(g), g.calibrationDueDate || '']
+                        csv: [g.id, g.category || '', serials.join('; '), g.status, loc(g), tech(g), g.calibrationNA === true ? 'N/A' : (g.calibrationDueDate || '')]
                     };
                 })
             };
@@ -3562,13 +3863,13 @@
                         ${g.location ? `<p class="mt-2 text-xs font-semibold text-slate-700"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(g.location)}</p>` : ''}`;
                 }
 
-                const calibState = getCalibStatus(g.calibrationDueDate);
-                const calibDate = g.calibrationDueDate ? new Date(g.calibrationDueDate + 'T00:00:00') : null;
+                const calibState = calStateOf(g);
+                const calibDate = (g.calibrationDueDate && !isCalExempt(g)) ? new Date(g.calibrationDueDate + 'T00:00:00') : null;
                 const calibDiff = calibDate ? Math.ceil((calibDate - today) / dayMs) : null;
                 const calibBody = `
                     <span class="inline-block px-2.5 py-1 text-xs font-bold rounded-full border ${calibState.class}">${escapeHtml(calibState.text)}</span>
                     <dl class="mt-3 space-y-1.5 text-xs">
-                        <div class="flex justify-between gap-3"><dt class="text-slate-500">Calibration Due</dt><dd class="font-mono text-slate-700">${escapeHtml(g.calibrationDueDate) || 'N/A'}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500">Calibration Due</dt><dd class="font-mono text-slate-700">${isCalExempt(g) ? 'N/A' : (escapeHtml(g.calibrationDueDate) || 'N/A')}</dd></div>
                         <div class="flex justify-between gap-3"><dt class="text-slate-500">Days Remaining</dt><dd class="font-mono font-bold ${calibDiff !== null && calibDiff < 0 ? 'text-rose-600' : calibDiff !== null && calibDiff <= 30 ? 'text-amber-600' : 'text-slate-800'}">${calibDiff === null ? 'N/A' : calibDiff < 0 ? `${Math.abs(calibDiff)} overdue` : calibDiff}</dd></div>
                     </dl>
                     <p class="mt-3 text-[11px] text-slate-400">Calibration is tracked at the group level.</p>`;
