@@ -449,7 +449,8 @@
                             <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] font-semibold border-b border-slate-200">
                                 <tr>
                                     <th class="px-4 py-3 " data-sort-key="id" aria-sort="none"><button type="button" onclick="window.sortInventory('id')" title="Sort by Group ID" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Group ID <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
-                                    <th class="px-4 py-3 " data-sort-key="category" aria-sort="none"><button type="button" onclick="window.sortInventory('category')" title="Sort by Category" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Category <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
+                                    <th class="px-4 py-3 " data-sort-key="category" aria-sort="none"><button type="button" onclick="window.sortInventory('category')" title="Sort by Category" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Category <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button>
+                                        <select id="inv-filter-category" onchange="window.renderInventoryTable()" title="Show only one category" aria-label="Filter by category" class="mt-1 block max-w-[11rem] px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-medium normal-case text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"><option value="__ALL__">All categories</option></select></th>
                                     <th class="px-4 py-3 text-center" data-sort-key="serials" aria-sort="none"><button type="button" onclick="window.sortInventory('serials')" title="Sort by Serials" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition justify-center w-full">Serials <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="status" aria-sort="none"><button type="button" onclick="window.sortInventory('status')" title="Sort by Status" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Status <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
                                     <th class="px-4 py-3 " data-sort-key="assigned" aria-sort="none"><button type="button" onclick="window.sortInventory('assigned')" title="Sort by Assigned To / Project" class="inv-sort-btn inline-flex items-center gap-1 uppercase font-semibold hover:text-blue-600 transition ">Assigned To / Project <i class="inv-sort-icon fa-solid fa-sort text-slate-300"></i></button></th>
@@ -2259,6 +2260,26 @@
             const filterStatus = document.getElementById('inv-filter-status')?.value || 'ALL';
             const filterSite = document.getElementById('inv-filter-site')?.value || 'ALL';
 
+            // Category drop-down lists every category currently in the database (rebuilt only when the list changes).
+            const catKey = g => String(g.category || '').trim();
+            const catSel = document.getElementById('inv-filter-category');
+            let filterCat = '__ALL__';
+            if (catSel) {
+                const cats = [...new Set(equipmentData.map(catKey))].sort(alphaCompare);
+                const sig = JSON.stringify(cats);
+                if (catSel.dataset.sig !== sig) {
+                    const prev = catSel.value || '__ALL__';
+                    catSel.innerHTML = '<option value="__ALL__">All categories</option>' +
+                        cats.map(c => `<option value="${c === '' ? '__NONE__' : escapeHtml(c)}">${escapeHtml(c || 'General Equipment')}</option>`).join('');
+                    catSel.dataset.sig = sig;
+                    catSel.value = (prev === '__ALL__' || (prev === '__NONE__' && cats.includes('')) || cats.includes(prev)) ? prev : '__ALL__';
+                }
+                filterCat = catSel.value || '__ALL__';
+                if (filterCat === '__NONE__') filterCat = '';
+                catSel.classList.toggle('ring-2', catSel.value !== '__ALL__');
+                catSel.classList.toggle('ring-blue-500', catSel.value !== '__ALL__');
+            }
+
             updateInventorySortHeaders();
             const filtered = sortInventoryList(equipmentData.filter(g => {
                 const matchSearch = !searchTerm || 
@@ -2270,7 +2291,8 @@
                 // Group IDs ending in NH are NH; everything else (TX or anything unrecognised) counts as TX.
                 const site = /NH\s*$/i.test(String(g.id || '')) ? 'NH' : 'TX';
                 const matchSite = (filterSite === 'ALL') || (site === filterSite);
-                return matchSearch && matchStatus && matchSite;
+                const matchCat = filterCat === '__ALL__' || catKey(g) === filterCat;
+                return matchSearch && matchStatus && matchSite && matchCat;
             }));
 
             if (filtered.length === 0) {
