@@ -2403,6 +2403,7 @@
                     if (p.length < 4 || p.length > 40) continue;
                     if (!/^[A-Z0-9][A-Z0-9\-\/_.]*[A-Z0-9]$/.test(p)) continue;
                     if (!/\d/.test(p)) continue;
+                    if (!/[A-Z]/.test(p) && !/\d{3,}/.test(p)) continue;        // numbers made only of 1-2 digit parts (12, 12/34, 1.25) are not serials
                     if (knownIds.has(p)) continue;
                     if (/^\d{1,4}-[A-Z]/.test(p)) continue;                  // group id such as 359-TIME-TX
                     if (/-(TX|NH)$/.test(p)) continue;
